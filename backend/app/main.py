@@ -103,13 +103,27 @@ app.include_router(admin.router)
 app.include_router(payments.router)
 
 
+@app.api_route("/", methods=["GET", "HEAD"])
+def root_check():
+    return {
+        "status": "healthy",
+        "service": "Shvom Bespoke Gifting API",
+        "version": "1.0.0"
+    }
+
+
+@app.api_route("/health", methods=["GET", "HEAD"])
+def simple_health_check():
+    return {"status": "healthy"}
+
+
 @app.get("/api/track/{identifier:path}")
 def track_order_direct(identifier: str, db: SessionLocal = Depends(get_db)):
     from app.routers.requests import track_order_public
     return track_order_public(identifier, db)
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     from app.services.mailer import get_mail_config
     cfg = get_mail_config()
