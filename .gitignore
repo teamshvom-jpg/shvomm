@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+venv/
+backend/venv/
+
+# Environment files
+.env
+backend/.env
+frontend/.env
+*.env
+*.env.local
+
+# Build artifacts
+dist/
+frontend/dist/
+.vercel/
+
+# Python cache & SQLite DB
+__pycache__/
+backend/app/**/__pycache__/
+backend/tests/__pycache__/
+*.pyc
+.pytest_cache/
+backend/shvom.db
+shvom.db
+
+# OS / Editor
+.DS_Store
+Thumbs.db

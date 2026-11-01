@@ -1,0 +1,22 @@
+[Unit]
+Description=Shvom Bespoke Gifting API Backend (FastAPI + Gunicorn)
+After=network.target
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/shvom/backend
+Environment="PATH=/var/www/shvom/backend/venv/bin:/usr/local/bin:/usr/bin"
+EnvironmentFile=/var/www/shvom/backend/.env
+ExecStart=/var/www/shvom/backend/venv/bin/gunicorn -c gunicorn_conf.py main:app
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=30
+PrivateTmp=true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

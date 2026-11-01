@@ -1,0 +1,239 @@
+{
+  "version": "1.0",
+  "questions": [
+    {
+      "id": "occasion",
+      "step": 1,
+      "branch": "all",
+      "type": "select_card",
+      "title": "What occasion are you celebrating?",
+      "subtitle": "Select the type of event you are planning return gifts for.",
+      "options": [
+        {
+          "value": "whats_on_your_mind",
+          "label": "What's on your mind?",
+          "description": "Have a custom gifting concept, bespoke brief, or personal vision? Share your thoughts, company logo, and parameters directly.",
+          "badge": "Personalized Vision"
+        },
+        {
+          "value": "corporate",
+          "label": "Corporate Events & Conferences",
+          "description": "Executive summits, client appreciation gifts, annual conferences, and team milestones.",
+          "badge": "Corporate"
+        },
+        {
+          "value": "wedding",
+          "label": "Weddings & Celebrations",
+          "description": "Sangeet, Mehendi, reception return gifts, destination welcome hampers, and family gifts.",
+          "badge": "Wedding"
+        },
+        {
+          "value": "private_soiree",
+          "label": "Anniversaries & Private Parties",
+          "description": "Milestone anniversaries, landmark birthdays, and exclusive family gatherings.",
+          "badge": "Private"
+        }
+      ],
+      "required": true
+    },
+    {
+      "id": "mind_thoughts",
+      "step": 2,
+      "branch": "whats_on_your_mind",
+      "condition": { "field": "occasion", "equals": "whats_on_your_mind" },
+      "type": "thoughts_and_vision",
+      "title": "Tell us what's on your mind",
+      "subtitle": "Share your thoughts, specific ideas, must-have items, or the vision you have in mind for your gifts.",
+      "fields": [
+        { "name": "thoughts", "label": "Your Thoughts", "placeholder": "Describe what is on your mind — your preferred items, themes, guest experience, or specific requirements...", "type": "textarea", "required": true },
+        { "name": "company_name", "label": "Company / Organization or Family Name", "placeholder": "e.g. Apex Global Advisors or Singhania Family", "required": false },
+        { "name": "event_type", "label": "Event or Occasion Type", "placeholder": "e.g. Annual Leadership Summit, Client Gala, Milestone Celebration", "required": false }
+      ]
+    },
+    {
+      "id": "mind_logo_payment",
+      "step": 3,
+      "branch": "whats_on_your_mind",
+      "condition": { "field": "occasion", "equals": "whats_on_your_mind" },
+      "type": "logo_and_payment",
+      "title": "Company logo & payment parameters",
+      "subtitle": "Attach your company logo next to your payment investment and quantity parameters.",
+      "required": true
+    },
+    {
+      "id": "corporate_company",
+      "step": 2,
+      "branch": "corporate",
+      "condition": { "field": "occasion", "equals": "corporate" },
+      "type": "text_split",
+      "title": "Tell us about your company and event",
+      "subtitle": "Help us understand your company and the type of gathering you are hosting.",
+      "fields": [
+        { "name": "company_name", "label": "Company / Organization Name", "placeholder": "e.g. Apex Global Capital", "required": true },
+        { "name": "event_type", "label": "Event Type", "placeholder": "e.g. Annual Leadership Summit, Client Appreciation Dinner", "required": true },
+        { "name": "corporate_vision", "label": "What's on your mind? (Optional thoughts, themes, or specific items)", "placeholder": "Tell us any specific ideas, desired items, timeline, or thoughts on your mind...", "type": "textarea", "required": false }
+      ]
+    },
+    {
+      "id": "corporate_recipients",
+      "step": 3,
+      "branch": "corporate",
+      "condition": { "field": "occasion", "equals": "corporate" },
+      "type": "multiselect_chips",
+      "title": "Who are the gifts for?",
+      "subtitle": "Select all that apply so we recommend the right style and materials.",
+      "options": [
+        { "value": "hni_clients", "label": "Key Clients & VIPs", "description": "High-end, elegant materials that impress" },
+        { "value": "board_executives", "label": "Board Members & Leadership", "description": "Executive quality and premium craftsmanship" },
+        { "value": "delegates", "label": "Conference Attendees", "description": "Compact, easy to travel with, and practical" },
+        { "value": "employees", "label": "Core Team & Employees", "description": "Thoughtful gifts celebrating team milestones" }
+      ],
+      "required": true
+    },
+    {
+      "id": "corporate_branding_tone",
+      "step": 4,
+      "branch": "corporate",
+      "condition": { "field": "occasion", "equals": "corporate" },
+      "type": "branding_aesthetic",
+      "title": "Branding style & colors",
+      "subtitle": "Choose how you would like your company logo and colors to appear on the gifts.",
+      "tone_options": [
+        { "value": "discreet_blind", "label": "Subtle Embossed Logo", "description": "Clean indented stamp without color for a discreet, premium look" },
+        { "value": "subtle_gold", "label": "Delicate Gold Foil", "description": "Small, elegant gold foil logo on cards or box lids" },
+        { "value": "curated_colors", "label": "Matching Brand Colors", "description": "Ribbon or inner box lining matched to your company brand colors" }
+      ],
+      "has_color_picker": true,
+      "has_logo_upload": true
+    },
+    {
+      "id": "wedding_details",
+      "step": 2,
+      "branch": "wedding",
+      "condition": { "field": "occasion", "equals": "wedding" },
+      "type": "wedding_identity",
+      "title": "The couple and location",
+      "subtitle": "Enter the couple's names and where the celebration is taking place.",
+      "fields": [
+        { "name": "couple_names", "label": "Couple's Names", "placeholder": "e.g. Alisha & Kabir", "required": true },
+        { "name": "wedding_date", "label": "Wedding Date (or Month)", "placeholder": "e.g. December 2026", "required": true },
+        { "name": "destination_city", "label": "Venue / City", "placeholder": "e.g. Udaipur, Lake Como, Mumbai, Goa", "required": true },
+        { "name": "wedding_vision", "label": "What's on your mind? (Optional ideas, family wishes, or must-haves)", "placeholder": "Tell us any special ideas, family traditions, or must-have items on your mind...", "type": "textarea", "required": false }
+      ]
+    },
+    {
+      "id": "wedding_aesthetic",
+      "step": 3,
+      "branch": "wedding",
+      "condition": { "field": "occasion", "equals": "wedding" },
+      "type": "select_card",
+      "title": "What style or vibe do you envision?",
+      "subtitle": "Choose the look and feel that best matches your wedding theme.",
+      "options": [
+        { "value": "heritage_royal", "label": "Royal & Traditional Heritage", "description": "Rich textures, brass accents, and classic Indian royal artistry" },
+        { "value": "contemporary_minimal", "label": "Clean Modern Luxury", "description": "Minimal lines, soft ivory, and elegant contemporary design" },
+        { "value": "botanical_intimate", "label": "Botanical & Garden", "description": "Natural linen, handmade paper, and botanical accents" },
+        { "value": "destination_riviera", "label": "Destination Wedding", "description": "Breezy, fresh styling inspired by Udaipur, Goa, or the Mediterranean" }
+      ],
+      "required": true
+    },
+    {
+      "id": "wedding_monogram",
+      "step": 4,
+      "branch": "wedding",
+      "condition": { "field": "occasion", "equals": "wedding" },
+      "type": "text_split",
+      "title": "Custom initials & thank-you note",
+      "subtitle": "Add the couple's initials or a personal thank-you message for your guests.",
+      "fields": [
+        { "name": "monogram_text", "label": "Initials or Family Name", "placeholder": "e.g. A & K or The Singhania Family", "required": false },
+        { "name": "custom_note_theme", "label": "Personal Message or Blessing", "placeholder": "e.g. With Love & Gratitude, Sanskrit blessing, etc.", "required": false }
+      ]
+    },
+    {
+      "id": "gift_category",
+      "step": 5,
+      "branch": "all",
+      "condition": { "field": "occasion", "notEquals": "whats_on_your_mind" },
+      "type": "select_card",
+      "title": "Choose the gift type",
+      "subtitle": "Select your preferred gift category or let our team suggest a curated combination.",
+      "options": [
+        { "value": "edible", "label": "Gourmet Dry Fruits & Sweets", "description": "Slow-roasted mamra almonds, fine chocolates, and saffron-infused treats", "badge": "Gourmet" },
+        { "value": "fragrance", "label": "Scented Candles & Home Fragrance", "description": "Natural soy candles, room elixirs, and ceramic scent stones", "badge": "Fragrance" },
+        { "value": "home_decor", "label": "Brass & Marble Keepsakes", "description": "Hand-hammered brass decorative bowls, carved Makrana marble trays, and artisanal accents", "badge": "Keepsake" },
+        { "value": "desk_lifestyle", "label": "Fine Leather & Desk Accessories", "description": "Full-grain leather folios, solid brass pens, and custom stationery", "badge": "Lifestyle" },
+        { "value": "jewellery_silver", "label": "Silver Coins & Keepsakes", "description": "Hallmarked 925 silver coins, silver filigree boxes, and keepsake tokens", "badge": "Silver" },
+        { "value": "sustainable_plants", "label": "Live Miniature Plants & Bonsai", "description": "Miniature bonsai plants and tabletop greens in glass planters", "badge": "Eco-Friendly" },
+        { "value": "bespoke_curation", "label": "Curated Gift Box (Mix of Items)", "description": "Let our team pair items together (e.g. scented candle + brass tray + gourmet nuts)", "badge": "Recommended" }
+      ],
+      "required": true
+    },
+    {
+      "id": "packaging_style",
+      "step": 6,
+      "branch": "all",
+      "condition": { "field": "occasion", "notEquals": "whats_on_your_mind" },
+      "type": "select_card",
+      "title": "Choose box & packaging style",
+      "subtitle": "Select how your gift will be boxed and presented to guests.",
+      "options": [
+        { "value": "linen_keepsake_box", "label": "Linen Keepsake Box", "description": "Wrapped in fine linen with magnetic closure and satin ribbon pull", "badge": "Popular" },
+        { "value": "solid_wood_chest", "label": "Solid Teak Wood Box", "description": "Hand-crafted wooden box with brass hinges and engraved lid", "badge": "Timeless" },
+        { "value": "rigid_matte_box", "label": "Premium Matte Gift Box", "description": "Clean modern rigid box with custom velvet insert tray", "badge": "Modern" },
+        { "value": "leather_trunk", "label": "Leatherette Keepsake Trunk", "description": "Classic vintage-style trunk with antique brass clasp", "badge": "Classic" },
+        { "value": "eco_paper", "label": "Handmade Paper Gift Wrap", "description": "100% recycled cotton handmade paper sealed with botanical wax", "badge": "Eco" }
+      ],
+      "required": true
+    },
+    {
+      "id": "personalization_level",
+      "step": 7,
+      "branch": "all",
+      "condition": { "field": "occasion", "notEquals": "whats_on_your_mind" },
+      "type": "select_card",
+      "title": "Personalization options",
+      "subtitle": "Add custom personal touches to make each gift memorable.",
+      "options": [
+        { "value": "gold_foil_embossing", "label": "Gold Foil Logo or Monogram", "description": "Crisp shiny gold or silver foil printed on boxes and cards" },
+        { "value": "monogram_engraving", "label": "Custom Engraving", "description": "Engraved directly on wooden box lids, silver coins, or brass trays" },
+        { "value": "individual_guest_calligraphy", "label": "Handwritten Guest Names", "description": "Each guest's name handwritten by calligraphers on cotton cards" },
+        { "value": "bespoke_scent_wax_seal", "label": "Custom Wax Seal Stamp", "description": "Classic wax seal stamped with the couple's or company's initials" },
+        { "value": "custom_card", "label": "Printed Thank-You Card", "description": "Elegant printed card with your custom message tucked inside" }
+      ],
+      "required": true
+    },
+    {
+      "id": "budget_quantity",
+      "step": 8,
+      "branch": "all",
+      "condition": { "field": "occasion", "notEquals": "whats_on_your_mind" },
+      "type": "budget_and_quantity",
+      "title": "Quantity and budget",
+      "subtitle": "We design custom gifts starting from 25 units. Transparent pricing with no hidden fees.",
+      "fields": [
+        { "name": "quantity", "label": "Estimated Quantity (units)", "type": "number", "default": 75, "min": 25, "max": 5000 },
+        { "name": "budget_range", "label": "Approximate Budget Per Unit (INR)", "type": "slider", "min": 1500, "max": 15000, "step": 500, "default": 3500 },
+        { "name": "flexible_budget", "label": "I am open to Shvom recommendations for the right curation", "type": "checkbox", "default": false }
+      ],
+      "required": true
+    },
+    {
+      "id": "logistics_contact",
+      "step": 9,
+      "branch": "all",
+      "type": "contact_and_logistics",
+      "title": "Delivery timeline and consultation contact",
+      "subtitle": "Your details remain strictly confidential. A dedicated gifting concierge will prepare your formal proposal.",
+      "fields": [
+        { "name": "client_name", "label": "Your Full Name", "placeholder": "e.g. Ananya Singhania", "required": true },
+        { "name": "client_email", "label": "Email Address", "placeholder": "e.g. ananya@singhania.com", "type": "email", "required": true },
+        { "name": "client_phone", "label": "Phone / WhatsApp", "placeholder": "+91 98200 00000", "required": true },
+        { "name": "delivery_city", "label": "Delivery City / Country", "placeholder": "e.g. Mumbai, Delhi, Dubai", "required": true },
+        { "name": "delivery_date", "label": "Required Delivery Date", "type": "date", "required": true },
+        { "name": "special_notes", "label": "Additional Bespoke Notes or Requests (Optional)", "placeholder": "e.g. We would love dry fruits to be strictly gluten-free, or specific color matching...", "required": false },
+        { "name": "consent", "label": "I consent to Shvom contacting me with a tailored presentation & quote.", "type": "consent", "required": true }
+      ]
+    }
+  ]
+}
