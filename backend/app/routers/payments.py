@@ -428,29 +428,51 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
     ).first()
 
     if pay:
-        # Gather all payments with same reference_code or invoice_no
-        related = db.query(PaymentRecord).filter(
+        # Parse notes JSON to extract advance, remaining, and line item financial totals
+        notes_data = {}
+        try:
+            notes_data = json.loads(pay.notes) if pay.notes else {}
+        except Exception:
+            notes_data = {}
+
+        taxable = float(notes_data.get("taxable") or 0.0)
+        total_gst = float(notes_data.get("total_gst") or 0.0)
+        recorded_advance = float(notes_data.get("advance_amount") or 0.0)
+        recorded_remaining = float(notes_data.get("remaining_amount") or 0.0)
+
+        total_billed = float(
+            notes_data.get("grand_total")
+            or notes_data.get("grandTotal")
+            or (taxable + total_gst if (taxable + total_gst) > 0 else 0.0)
+            or (recorded_advance + recorded_remaining if (recorded_advance + recorded_remaining) > 0 else 0.0)
+            or pay.amount
+            or 0.0
+        )
+
+        # Gather subsequent payments made against this invoice / reference (excluding main bill itself)
+        subsequent_payments = db.query(PaymentRecord).filter(
+            PaymentRecord.id != pay.id,
             or_(
                 PaymentRecord.reference_code.ilike(pay.reference_code) if pay.reference_code else False,
                 PaymentRecord.invoice_no.ilike(pay.invoice_no) if pay.invoice_no else False,
             )
-        ).all() or [pay]
-
-        paid_statuses = {"PAID", "Completed", "BILLED", "SUCCESS"}
-        total_paid = sum(
-            p.amount for p in related if (p.status or "").upper() in paid_statuses or p.status in paid_statuses
+        ).all()
+        paid_statuses = {"PAID", "COMPLETED", "BILLED", "SUCCESS"}
+        subsequent_paid = sum(
+            p.amount for p in subsequent_payments if (p.status or "").upper() in paid_statuses
         )
-        # Try to read total_billed from notes JSON
-        total_billed = 0.0
-        try:
-            notes_data = json.loads(pay.notes) if pay.notes else {}
-            grand = notes_data.get("grand_total") or notes_data.get("grandTotal") or 0.0
-            total_billed = float(grand)
-        except Exception:
-            total_billed = 0.0
-        if total_billed == 0.0:
-            total_billed = total_paid  # fallback
-        balance = max(0.0, round(total_billed - total_paid, 2))
+
+        if recorded_remaining > 0 or recorded_advance > 0:
+            total_paid = min(total_billed, round(recorded_advance + subsequent_paid, 2))
+            balance_due = max(0.0, round(total_billed - total_paid, 2))
+        elif (pay.status or "").upper() in {"PENDING", "PROFORMA", "UNPAID"}:
+            total_paid = round(subsequent_paid, 2)
+            balance_due = max(0.0, round(total_billed - total_paid, 2))
+        else:
+            total_paid = total_billed
+            balance_due = 0.0
+
+        all_related = [pay] + subsequent_payments
 
         return {
             "found": True,
@@ -463,7 +485,9 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
             "occasion": pay.purpose,
             "total_billed": round(total_billed, 2),
             "total_paid": round(total_paid, 2),
-            "balance_due": balance,
+            "balance_due": round(balance_due, 2),
+            "notes": pay.notes,
+            "items": notes_data.get("items") or [],
             "payments": [
                 {
                     "transaction_id": p.transaction_id,
@@ -473,7 +497,7 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
                     "payment_method": p.payment_method,
                     "created_at": p.created_at.isoformat() if p.created_at else None,
                 }
-                for p in related
+                for p in all_related
             ],
         }
 

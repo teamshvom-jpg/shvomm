@@ -267,12 +267,52 @@ def track_order_public(identifier: str, db: Session = Depends(get_db)):
             else "Dispatched" if pay.status == "DISPATCHED"
             else "In Atelier Production"
         )
+
+        notes_data = {}
+        try:
+            notes_data = json.loads(pay.notes) if pay.notes else {}
+        except Exception:
+            notes_data = {}
+        order_items = notes_data.get("items") or []
+
         item_trackings = []
         if pay.item_tracking_json:
             try:
-                item_trackings = json.loads(pay.item_tracking_json)
+                parsed_trk = json.loads(pay.item_tracking_json)
+                if isinstance(parsed_trk, list):
+                    item_trackings = parsed_trk
             except Exception:
                 item_trackings = []
+
+        default_trk_no = pay.tracking_number or pay.invoice_no or pay.transaction_id
+        default_courier = pay.courier_name or "Blue Dart Express"
+
+        # If item_trackings is not configured but bill has multiple items, auto-generate tracking for each item
+        if not item_trackings and isinstance(order_items, list) and len(order_items) > 1:
+            for idx, it in enumerate(order_items):
+                item_trackings.append({
+                    "item_label": it.get("description") or f"Item {idx + 1}",
+                    "quantity": it.get("qty") or 1,
+                    "tracking_status": status_val,
+                    "status_step": map_status_to_step(status_val),
+                    "courier_name": default_courier,
+                    "tracking_number": default_trk_no,
+                    "tracking_url": pay.tracking_url,
+                    "estimated_delivery": pay.estimated_delivery,
+                    "tracking_notes": pay.tracking_notes or "In atelier production & quality check.",
+                })
+        elif item_trackings:
+            # Ensure every item tracking entry has the tracking_number and step filled
+            for it in item_trackings:
+                if not it.get("tracking_number"):
+                    it["tracking_number"] = default_trk_no
+                if not it.get("courier_name"):
+                    it["courier_name"] = default_courier
+                if not it.get("tracking_status"):
+                    it["tracking_status"] = status_val
+                if not it.get("status_step"):
+                    it["status_step"] = map_status_to_step(it.get("tracking_status", status_val))
+
         return {
             "found": True,
             "invoice_no": pay.invoice_no or pay.transaction_id,
@@ -280,15 +320,16 @@ def track_order_public(identifier: str, db: Session = Depends(get_db)):
             "client_name": pay.customer_name,
             "occasion": pay.purpose or "Bespoke Return Gifting",
             "destination": "Registered Address",
-            "quantity": 1,
+            "quantity": len(order_items) if len(order_items) > 1 else 1,
             "tracking_status": status_val,
             "status_step": map_status_to_step(status_val),
-            "courier_name": pay.courier_name or "Blue Dart Express",
-            "tracking_number": pay.tracking_number,
+            "courier_name": default_courier,
+            "tracking_number": default_trk_no,
             "tracking_url": pay.tracking_url,
             "estimated_delivery": pay.estimated_delivery,
             "tracking_notes": pay.tracking_notes or "Payment verified; items are being curated in the atelier.",
             "item_trackings": item_trackings,
+            "items": order_items,
             "created_at": pay.created_at.isoformat() if pay.created_at else None,
             "updated_at": pay.updated_at.isoformat() if pay.updated_at else None,
         }

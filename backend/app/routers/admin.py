@@ -344,6 +344,15 @@ def create_admin_bill(
     elif notes is not None:
         notes = str(notes)
 
+    item_tracking_json = payload.get("item_tracking_json")
+    if isinstance(item_tracking_json, list):
+        item_tracking_json = json.dumps(item_tracking_json)
+    elif item_tracking_json is not None:
+        item_tracking_json = str(item_tracking_json)
+
+    tracking_number = payload.get("tracking_number") or invoice_no
+    courier_name = payload.get("courier_name") or "Blue Dart Express"
+
     new_bill = PaymentRecord(
         transaction_id=transaction_id,
         order_id=order_id,
@@ -358,6 +367,9 @@ def create_admin_bill(
         status=payload.get("status", "PAID"),
         invoice_no=invoice_no,
         tracking_status=payload.get("tracking_status", "Order Confirmed"),
+        courier_name=courier_name,
+        tracking_number=tracking_number,
+        item_tracking_json=item_tracking_json,
         notes=notes,
         created_at=datetime.utcnow(),
     )
