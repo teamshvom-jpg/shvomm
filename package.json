@@ -1,6 +1,17 @@
 {
+  "name": "shvom",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build && node -e \"const fs=require('fs'); fs.rmSync('dist', {recursive:true, force:true}); fs.cpSync('frontend/dist', 'dist', {recursive:true});\"",
+    "dev": "npm --prefix frontend run dev",
+    "preview": "npm --prefix frontend run preview"
+  },
   "dependencies": {
     "@neon/config": "^1.10.0",
     "@neon/env": "^1.6.8"
+  },
+  "devDependencies": {
+    "vite": "^5.4.6"
   }
 }
