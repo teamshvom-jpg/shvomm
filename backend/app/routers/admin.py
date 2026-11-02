@@ -149,6 +149,8 @@ def update_request_tracking(
 ):
     """
     Updates logistics tracking information for a commission request.
+    Supports per-item tracking via `item_trackings` list:
+      [{item_label, courier_name, tracking_number, tracking_url, tracking_notes}]
     """
     item = db.query(GiftRequest).filter(GiftRequest.id == req_id).first()
     if not item:
@@ -169,6 +171,14 @@ def update_request_tracking(
     if "tracking_notes" in payload:
         item.tracking_notes = payload["tracking_notes"].strip() if payload["tracking_notes"] else None
 
+    # Per-item tracking array
+    if "item_trackings" in payload:
+        raw = payload["item_trackings"]
+        if isinstance(raw, list):
+            item.item_tracking_json = json.dumps(raw)
+        else:
+            item.item_tracking_json = None
+
     # Sync main status if delivered or confirmed
     if item.tracking_status == "Delivered":
         item.status = "Closed"
@@ -177,6 +187,14 @@ def update_request_tracking(
 
     db.commit()
     db.refresh(item)
+
+    item_trackings = []
+    if item.item_tracking_json:
+        try:
+            item_trackings = json.loads(item.item_tracking_json)
+        except Exception:
+            item_trackings = []
+
     return {
         "success": True,
         "reference_id": item.reference_id,
@@ -187,6 +205,7 @@ def update_request_tracking(
         "tracking_url": item.tracking_url,
         "estimated_delivery": item.estimated_delivery,
         "tracking_notes": item.tracking_notes,
+        "item_trackings": item_trackings,
     }
 
 
@@ -369,6 +388,11 @@ def update_payment_tracking(
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
+    """
+    Updates logistics tracking for a payment record.
+    Supports per-item tracking via `item_trackings` list:
+      [{item_label, courier_name, tracking_number, tracking_url, tracking_notes}]
+    """
     payment = db.query(PaymentRecord).filter(PaymentRecord.id == payment_id).first()
     if not payment:
         raise HTTPException(status_code=404, detail="Payment record not found")
@@ -388,8 +412,24 @@ def update_payment_tracking(
     if "tracking_notes" in payload:
         payment.tracking_notes = payload["tracking_notes"].strip() if payload["tracking_notes"] else None
 
+    # Per-item tracking array
+    if "item_trackings" in payload:
+        raw = payload["item_trackings"]
+        if isinstance(raw, list):
+            payment.item_tracking_json = json.dumps(raw)
+        else:
+            payment.item_tracking_json = None
+
     db.commit()
     db.refresh(payment)
+
+    item_trackings = []
+    if payment.item_tracking_json:
+        try:
+            item_trackings = json.loads(payment.item_tracking_json)
+        except Exception:
+            item_trackings = []
+
     return {
         "success": True,
         "id": payment.id,
@@ -400,6 +440,7 @@ def update_payment_tracking(
         "tracking_url": payment.tracking_url,
         "estimated_delivery": payment.estimated_delivery,
         "tracking_notes": payment.tracking_notes,
+        "item_trackings": item_trackings,
     }
 
 

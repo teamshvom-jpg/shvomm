@@ -84,6 +84,8 @@ def migrate_db_schema():
                     conn.execute(text("ALTER TABLE payments ADD COLUMN estimated_delivery VARCHAR(64)"))
                 if "tracking_notes" not in cols:
                     conn.execute(text("ALTER TABLE payments ADD COLUMN tracking_notes TEXT"))
+                if "item_tracking_json" not in cols:
+                    conn.execute(text("ALTER TABLE payments ADD COLUMN item_tracking_json TEXT"))
                 conn.commit()
 
             # 2. Check table columns for gift_requests
@@ -104,6 +106,8 @@ def migrate_db_schema():
                     conn.execute(text("ALTER TABLE gift_requests ADD COLUMN estimated_delivery VARCHAR(64)"))
                 if "tracking_notes" not in cols_req:
                     conn.execute(text("ALTER TABLE gift_requests ADD COLUMN tracking_notes TEXT"))
+                if "item_tracking_json" not in cols_req:
+                    conn.execute(text("ALTER TABLE gift_requests ADD COLUMN item_tracking_json TEXT"))
                 conn.commit()
     except Exception:
         # Ignore if table doesn't exist yet or non-sqlite engine

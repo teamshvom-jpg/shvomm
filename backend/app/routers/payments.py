@@ -10,6 +10,7 @@ Endpoints:
 """
 
 import uuid
+import json
 import logging
 from typing import Optional
 from datetime import datetime
@@ -353,3 +354,130 @@ def get_payment(transaction_id: str, db: Session = Depends(get_db)):
     if not record:
         raise HTTPException(status_code=404, detail="Payment record not found")
     return record
+
+
+@router.get("/api/balance/{identifier:path}")
+def get_balance_due(identifier: str, db: Session = Depends(get_db)):
+    """
+    Public endpoint: look up total billed and total paid for an order/invoice.
+    Accepts Invoice No, Reference ID, or Transaction ID.
+    Returns total_billed, total_paid, balance_due, customer info.
+    """
+    from sqlalchemy import or_
+    from app.models.request import GiftRequest as GR
+
+    clean = identifier.strip()
+
+    # 1. Look up GiftRequest by reference_id or invoice_no
+    req = db.query(GR).filter(
+        or_(
+            GR.invoice_no.ilike(clean),
+            GR.reference_id.ilike(clean),
+        )
+    ).first()
+
+    if req:
+        # Gather all payments linked by reference_code == reference_id
+        payments = db.query(PaymentRecord).filter(
+            or_(
+                PaymentRecord.reference_code.ilike(req.reference_id),
+                PaymentRecord.invoice_no.ilike(req.invoice_no) if req.invoice_no else False,
+            )
+        ).all()
+        paid_statuses = {"PAID", "Completed", "BILLED", "SUCCESS"}
+        total_paid = sum(
+            p.amount for p in payments if (p.status or "").upper() in paid_statuses or p.status in paid_statuses
+        )
+        # Try to derive total billed from latest payment notes or estimated_max_total
+        total_billed = req.estimated_max_total or 0.0
+        # If a PAID record exists with a purpose that shows it's a full/advance, use sum of all payments as hint
+        balance = max(0.0, round(total_billed - total_paid, 2))
+        return {
+            "found": True,
+            "source": "commission",
+            "reference_id": req.reference_id,
+            "invoice_no": req.invoice_no,
+            "client_name": req.client_name,
+            "client_email": req.client_email,
+            "client_phone": req.client_phone,
+            "occasion": req.occasion,
+            "total_billed": round(total_billed, 2),
+            "total_paid": round(total_paid, 2),
+            "balance_due": balance,
+            "payments": [
+                {
+                    "transaction_id": p.transaction_id,
+                    "amount": p.amount,
+                    "status": p.status,
+                    "purpose": p.purpose,
+                    "payment_method": p.payment_method,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                }
+                for p in payments
+            ],
+        }
+
+    # 2. Look up PaymentRecord by invoice_no, transaction_id, reference_code, or order_id
+    pay = db.query(PaymentRecord).filter(
+        or_(
+            PaymentRecord.invoice_no.ilike(clean),
+            PaymentRecord.transaction_id.ilike(clean),
+            PaymentRecord.reference_code.ilike(clean),
+            PaymentRecord.order_id.ilike(clean),
+        )
+    ).first()
+
+    if pay:
+        # Gather all payments with same reference_code or invoice_no
+        related = db.query(PaymentRecord).filter(
+            or_(
+                PaymentRecord.reference_code.ilike(pay.reference_code) if pay.reference_code else False,
+                PaymentRecord.invoice_no.ilike(pay.invoice_no) if pay.invoice_no else False,
+            )
+        ).all() or [pay]
+
+        paid_statuses = {"PAID", "Completed", "BILLED", "SUCCESS"}
+        total_paid = sum(
+            p.amount for p in related if (p.status or "").upper() in paid_statuses or p.status in paid_statuses
+        )
+        # Try to read total_billed from notes JSON
+        total_billed = 0.0
+        try:
+            notes_data = json.loads(pay.notes) if pay.notes else {}
+            grand = notes_data.get("grand_total") or notes_data.get("grandTotal") or 0.0
+            total_billed = float(grand)
+        except Exception:
+            total_billed = 0.0
+        if total_billed == 0.0:
+            total_billed = total_paid  # fallback
+        balance = max(0.0, round(total_billed - total_paid, 2))
+
+        return {
+            "found": True,
+            "source": "payment",
+            "reference_id": pay.reference_code or pay.transaction_id,
+            "invoice_no": pay.invoice_no or pay.transaction_id,
+            "client_name": pay.customer_name,
+            "client_email": pay.customer_email,
+            "client_phone": pay.customer_phone,
+            "occasion": pay.purpose,
+            "total_billed": round(total_billed, 2),
+            "total_paid": round(total_paid, 2),
+            "balance_due": balance,
+            "payments": [
+                {
+                    "transaction_id": p.transaction_id,
+                    "amount": p.amount,
+                    "status": p.status,
+                    "purpose": p.purpose,
+                    "payment_method": p.payment_method,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                }
+                for p in related
+            ],
+        }
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"No order or invoice found for '{clean}'. Please check your invoice number or reference code."
+    )

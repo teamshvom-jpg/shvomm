@@ -225,6 +225,12 @@ def track_order_public(identifier: str, db: Session = Depends(get_db)):
             else "In Atelier Production" if req.status == "Confirmed"
             else "Order Confirmed"
         )
+        item_trackings = []
+        if req.item_tracking_json:
+            try:
+                item_trackings = json.loads(req.item_tracking_json)
+            except Exception:
+                item_trackings = []
         return {
             "found": True,
             "invoice_no": req.invoice_no or req.reference_id,
@@ -240,6 +246,7 @@ def track_order_public(identifier: str, db: Session = Depends(get_db)):
             "tracking_url": req.tracking_url,
             "estimated_delivery": req.estimated_delivery or req.delivery_date,
             "tracking_notes": req.tracking_notes or "Commission confirmed and assigned to master artisan atelier.",
+            "item_trackings": item_trackings,
             "created_at": req.created_at.isoformat() if req.created_at else None,
             "updated_at": req.updated_at.isoformat() if req.updated_at else None,
         }
@@ -260,6 +267,12 @@ def track_order_public(identifier: str, db: Session = Depends(get_db)):
             else "Dispatched" if pay.status == "DISPATCHED"
             else "In Atelier Production"
         )
+        item_trackings = []
+        if pay.item_tracking_json:
+            try:
+                item_trackings = json.loads(pay.item_tracking_json)
+            except Exception:
+                item_trackings = []
         return {
             "found": True,
             "invoice_no": pay.invoice_no or pay.transaction_id,
@@ -275,6 +288,7 @@ def track_order_public(identifier: str, db: Session = Depends(get_db)):
             "tracking_url": pay.tracking_url,
             "estimated_delivery": pay.estimated_delivery,
             "tracking_notes": pay.tracking_notes or "Payment verified; items are being curated in the atelier.",
+            "item_trackings": item_trackings,
             "created_at": pay.created_at.isoformat() if pay.created_at else None,
             "updated_at": pay.updated_at.isoformat() if pay.updated_at else None,
         }

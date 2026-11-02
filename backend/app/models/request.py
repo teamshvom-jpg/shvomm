@@ -46,6 +46,9 @@ class GiftRequest(Base):
     estimated_delivery = Column(String(64), nullable=True)
     tracking_notes = Column(Text, nullable=True)
 
+    # Per-item tracking (JSON array of {item_label, courier_name, tracking_number, tracking_url})
+    item_tracking_json = Column(Text, nullable=True)
+
     # Notes
     special_notes = Column(Text, nullable=True)
     admin_notes = Column(Text, nullable=True)
