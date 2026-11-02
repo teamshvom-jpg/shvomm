@@ -39,6 +39,7 @@ class GiftRequest(Base):
     
     # Fulfillment & Tracking
     invoice_no = Column(String(64), nullable=True, index=True)
+    invoice_date = Column(String(32), nullable=True)
     tracking_status = Column(String(64), default="Order Confirmed", nullable=True)
     courier_name = Column(String(128), nullable=True)
     tracking_number = Column(String(128), nullable=True)

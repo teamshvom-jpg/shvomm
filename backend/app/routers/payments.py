@@ -505,3 +505,577 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
         status_code=404,
         detail=f"No order or invoice found for '{clean}'. Please check your invoice number or reference code."
     )
+
+
+# ============================================================================
+# ORDER LOOKUP & DYNAMIC LINE ITEM ADDITION (SAME ORDER & UNIFIED TRACKING)
+# ============================================================================
+
+def process_add_item_to_order_record(
+    db: Session,
+    parent: PaymentRecord,
+    raw_item: dict,
+    is_advance: bool,
+    paid_amount: float,
+    payment_method: str = "Cashfree PG",
+    customer_name: Optional[str] = None,
+    customer_email: Optional[str] = None,
+    customer_phone: Optional[str] = None,
+) -> dict:
+    """
+    Core engine to append an item to an existing order:
+    1. Appends new line item to order's JSON notes
+    2. Recalculates taxable, total_gst, grand_total, advance, and remaining amounts
+    3. Updates item_tracking_json preserving the SAME tracking number
+    4. Creates a linked payment record with the SAME order_id, invoice_no, and tracking_number
+    """
+    notes_data = {}
+    try:
+        notes_data = json.loads(parent.notes) if parent.notes else {}
+    except Exception:
+        notes_data = {}
+
+    existing_items = notes_data.get("items") or []
+    if not existing_items:
+        existing_items = [
+            {
+                "id": "item_1",
+                "description": parent.purpose or "Bespoke Atelier Commission & Curation",
+                "hsn": "997212",
+                "qty": 1,
+                "unit": "PCS",
+                "rate": round(parent.amount / 1.18, 2),
+                "gst_rate": 18,
+            }
+        ]
+
+    # Calculate financial totals for the new line item
+    qty = max(1, int(raw_item.get("qty") or 1))
+    rate = max(0.0, float(raw_item.get("rate") or 0.0))
+    gst_rate = float(raw_item.get("gst_rate") if raw_item.get("gst_rate") is not None else 18.0)
+    line_taxable = round(qty * rate, 2)
+    line_gst = round((line_taxable * gst_rate) / 100.0, 2)
+    item_total = round(line_taxable + line_gst, 2)
+
+    new_item_obj = {
+        "id": f"item_{int(datetime.utcnow().timestamp() * 1000)}",
+        "description": raw_item.get("description") or f"Added Item {len(existing_items) + 1}",
+        "hsn": raw_item.get("hsn") or "997212",
+        "qty": qty,
+        "unit": raw_item.get("unit") or "PCS",
+        "rate": rate,
+        "gst_rate": gst_rate,
+    }
+    updated_items = existing_items + [new_item_obj]
+
+    # Existing financial totals
+    old_taxable = float(notes_data.get("taxable") or sum(it.get("qty", 1) * it.get("rate", 0) for it in existing_items))
+    old_total_gst = float(notes_data.get("total_gst") or sum(it.get("qty", 1) * it.get("rate", 0) * (it.get("gst_rate", 18)/100) for it in existing_items))
+    old_grand_total = float(notes_data.get("grand_total") or parent.amount)
+    old_advance = float(notes_data.get("advance_amount") or (old_grand_total if parent.status == "PAID" else 0.0))
+    old_remaining = float(notes_data.get("remaining_amount") or 0.0)
+
+    new_taxable = round(old_taxable + line_taxable, 2)
+    new_total_gst = round(old_total_gst + line_gst, 2)
+    new_grand_total = round(old_grand_total + item_total, 2)
+
+    # Determine paid and remaining for this addition
+    if is_advance:
+        actual_paid = min(item_total, max(1.0, float(paid_amount)))
+        new_item_remaining = round(item_total - actual_paid, 2)
+    else:
+        actual_paid = item_total
+        new_item_remaining = 0.0
+
+    new_total_advance = round(old_advance + actual_paid, 2)
+    new_total_remaining = round(old_remaining + new_item_remaining, 2)
+
+    # Tracking: maintain exact SAME tracking number for all items
+    tracking_number = parent.tracking_number or parent.invoice_no or parent.transaction_id
+    courier = parent.courier_name or "Blue Dart Express"
+
+    existing_trackings = []
+    if parent.item_tracking_json:
+        try:
+            parsed_t = json.loads(parent.item_tracking_json)
+            if isinstance(parsed_t, list):
+                existing_trackings = parsed_t
+        except Exception:
+            existing_trackings = []
+
+    if not existing_trackings:
+        for idx, it in enumerate(existing_items):
+            existing_trackings.append({
+                "item_label": it.get("description") or f"Item {idx + 1}",
+                "quantity": it.get("qty") or 1,
+                "courier_name": courier,
+                "tracking_number": tracking_number,
+                "tracking_status": parent.tracking_status or "Order Confirmed",
+                "status_step": 1,
+                "tracking_url": parent.tracking_url or "",
+                "tracking_notes": "Commission confirmed and assigned to master atelier queue.",
+            })
+
+    new_tracking_entry = {
+        "item_label": new_item_obj["description"],
+        "quantity": qty,
+        "courier_name": courier,
+        "tracking_number": tracking_number,  # STRICT REQUIREMENT: Same tracking number
+        "tracking_status": "Order Confirmed",
+        "status_step": 1,
+        "tracking_url": parent.tracking_url or "",
+        "tracking_notes": f"Item added to commission. Unified under consignment {tracking_number}.",
+    }
+    updated_trackings = existing_trackings + [new_tracking_entry]
+
+    # Update parent record
+    notes_data["items"] = updated_items
+    notes_data["taxable"] = new_taxable
+    notes_data["total_gst"] = new_total_gst
+    notes_data["grand_total"] = new_grand_total
+    notes_data["advance_amount"] = new_total_advance
+    notes_data["remaining_amount"] = new_total_remaining
+    parent.notes = json.dumps(notes_data)
+    parent.amount = new_grand_total
+    parent.item_tracking_json = json.dumps(updated_trackings)
+    parent.status = "PARTIAL" if new_total_remaining > 0 else "PAID"
+    parent.updated_at = datetime.utcnow()
+
+    # Record linked payment transaction
+    txn_id = f"SHV-ADD-{uuid.uuid4().hex[:8].upper()}"
+    new_payment = PaymentRecord(
+        transaction_id=txn_id,
+        order_id=parent.order_id,          # SAME order_id
+        invoice_no=parent.invoice_no,      # SAME invoice_no
+        amount=round(actual_paid, 2),
+        currency="INR",
+        customer_name=(customer_name or parent.customer_name).strip(),
+        customer_email=(customer_email or parent.customer_email).strip(),
+        customer_phone=(customer_phone or parent.customer_phone),
+        reference_code=parent.reference_code or parent.order_id,
+        purpose=f"Item Added: {new_item_obj['description']}",
+        payment_method=payment_method,
+        status="PAID",
+        tracking_status="Order Confirmed",
+        courier_name=courier,
+        tracking_number=tracking_number,   # SAME tracking_number
+        item_tracking_json=json.dumps(updated_trackings),
+        notes=json.dumps({
+            "action": "add_item",
+            "parent_order_id": parent.order_id,
+            "parent_invoice_no": parent.invoice_no,
+            "added_item": new_item_obj,
+            "paid_amount": actual_paid,
+            "is_advance": is_advance,
+            "new_item_remaining": new_item_remaining,
+        }),
+        created_at=datetime.utcnow(),
+    )
+    db.add(new_payment)
+    db.commit()
+    db.refresh(parent)
+    db.refresh(new_payment)
+
+    return {
+        "success": True,
+        "message": "Item added to existing order successfully.",
+        "order_id": parent.order_id,
+        "invoice_no": parent.invoice_no,
+        "tracking_number": tracking_number,
+        "transaction_id": new_payment.transaction_id,
+        "amount_paid": actual_paid,
+        "is_advance": is_advance,
+        "new_grand_total": new_grand_total,
+        "new_remaining": new_total_remaining,
+        "total_advance": new_total_advance,
+        "items": updated_items,
+        "item_trackings": updated_trackings,
+        "parent": {
+            "id": parent.id,
+            "customer_name": parent.customer_name,
+            "customer_email": parent.customer_email,
+            "status": parent.status,
+        }
+    }
+
+
+@router.get("/api/orders/{identifier:path}")
+def get_order_details(identifier: str, db: Session = Depends(get_db)):
+    """
+    Public lookup for complete order details by Order ID, Invoice Number, Reference Code, or Transaction ID.
+    Used by:
+    1. Patron: 'Add an item to the existing bill' in Navbar Pay modal
+    2. Admin: 'Generate an existing bill' in Admin Bill Generator
+    """
+    from sqlalchemy import or_
+    from app.models.request import GiftRequest as GR
+
+    clean = identifier.strip()
+
+    # 1. Search in PaymentRecord
+    pay = db.query(PaymentRecord).filter(
+        or_(
+            PaymentRecord.order_id.ilike(clean),
+            PaymentRecord.invoice_no.ilike(clean),
+            PaymentRecord.transaction_id.ilike(clean),
+            PaymentRecord.reference_code.ilike(clean),
+        )
+    ).order_by(PaymentRecord.id.asc()).first()
+
+    if pay:
+        notes_data = {}
+        try:
+            notes_data = json.loads(pay.notes) if pay.notes else {}
+        except Exception:
+            notes_data = {}
+
+        items = notes_data.get("items") or [
+            {
+                "id": "item_1",
+                "description": pay.purpose or "Bespoke Atelier Commission & Curation",
+                "hsn": "997212",
+                "qty": 1,
+                "unit": "PCS",
+                "rate": round(pay.amount / 1.18, 2),
+                "gst_rate": 18,
+            }
+        ]
+
+        taxable = float(notes_data.get("taxable") or 0.0)
+        total_gst = float(notes_data.get("total_gst") or 0.0)
+        recorded_advance = float(notes_data.get("advance_amount") or 0.0)
+        recorded_remaining = float(notes_data.get("remaining_amount") or 0.0)
+        total_billed = float(
+            notes_data.get("grand_total")
+            or notes_data.get("grandTotal")
+            or (taxable + total_gst if (taxable + total_gst) > 0 else 0.0)
+            or (recorded_advance + recorded_remaining if (recorded_advance + recorded_remaining) > 0 else 0.0)
+            or pay.amount
+            or 0.0
+        )
+
+        subsequent_payments = db.query(PaymentRecord).filter(
+            PaymentRecord.id != pay.id,
+            or_(
+                PaymentRecord.order_id.ilike(pay.order_id) if pay.order_id else False,
+                PaymentRecord.reference_code.ilike(pay.reference_code) if pay.reference_code else False,
+                PaymentRecord.invoice_no.ilike(pay.invoice_no) if pay.invoice_no else False,
+            )
+        ).all()
+        paid_statuses = {"PAID", "COMPLETED", "BILLED", "SUCCESS"}
+        subsequent_paid = sum(
+            p.amount for p in subsequent_payments if (p.status or "").upper() in paid_statuses
+        )
+
+        if recorded_remaining > 0 or recorded_advance > 0:
+            total_paid = min(total_billed, round(recorded_advance + subsequent_paid, 2))
+            balance_due = max(0.0, round(total_billed - total_paid, 2))
+        elif (pay.status or "").upper() in {"PENDING", "PROFORMA", "UNPAID"}:
+            total_paid = round(subsequent_paid, 2)
+            balance_due = max(0.0, round(total_billed - total_paid, 2))
+        else:
+            total_paid = total_billed
+            balance_due = 0.0
+
+        item_trackings = []
+        if pay.item_tracking_json:
+            try:
+                parsed_t = json.loads(pay.item_tracking_json)
+                if isinstance(parsed_t, list):
+                    item_trackings = parsed_t
+            except Exception:
+                item_trackings = []
+
+        tracking_number = pay.tracking_number or pay.invoice_no or pay.transaction_id
+        courier_name = pay.courier_name or "Blue Dart Express"
+
+        if not item_trackings:
+            for idx, it in enumerate(items):
+                item_trackings.append({
+                    "item_label": it.get("description") or f"Item {idx + 1}",
+                    "quantity": it.get("qty") or 1,
+                    "courier_name": courier_name,
+                    "tracking_number": tracking_number,
+                    "tracking_status": pay.tracking_status or "Order Confirmed",
+                    "status_step": 1,
+                    "tracking_url": pay.tracking_url or "",
+                    "tracking_notes": pay.tracking_notes or "Commission confirmed and assigned to atelier queue.",
+                })
+
+        inv_date = pay.invoice_date or notes_data.get("invoice_date")
+        if not inv_date and pay.created_at:
+            inv_date = pay.created_at.strftime("%Y-%m-%d")
+
+        return {
+            "found": True,
+            "source": "payment",
+            "id": pay.id,
+            "order_id": pay.order_id or f"ORDER-{pay.id}",
+            "invoice_no": pay.invoice_no or pay.transaction_id,
+            "transaction_id": pay.transaction_id,
+            "invoice_date": inv_date,
+            "customer_name": pay.customer_name,
+            "customer_email": pay.customer_email,
+            "customer_phone": pay.customer_phone or "",
+            "customer_gstin": notes_data.get("customer_gstin") or "",
+            "customer_address": notes_data.get("customer_address") or "",
+            "customer_city": notes_data.get("customer_city") or "",
+            "customer_state": notes_data.get("customer_state") or "",
+            "customer_pincode": notes_data.get("customer_pincode") or "",
+            "place_of_supply": notes_data.get("place_of_supply") or "Telangana",
+            "reference_code": pay.reference_code or pay.order_id,
+            "purpose": pay.purpose,
+            "status": pay.status,
+            "items": items,
+            "taxable": round(taxable, 2),
+            "total_gst": round(total_gst, 2),
+            "grand_total": round(total_billed, 2),
+            "advance_amount": round(recorded_advance, 2),
+            "advance_payment_mode": notes_data.get("advance_payment_mode") or "Bank Transfer",
+            "remaining_amount": round(recorded_remaining if recorded_remaining > 0 else balance_due, 2),
+            "remaining_payment_mode": notes_data.get("remaining_payment_mode") or "Bank Transfer",
+            "total_billed": round(total_billed, 2),
+            "total_paid": round(total_paid, 2),
+            "balance_due": round(balance_due, 2),
+            "tracking_status": pay.tracking_status or "Order Confirmed",
+            "courier_name": courier_name,
+            "tracking_number": tracking_number,
+            "tracking_url": pay.tracking_url or "",
+            "estimated_delivery": pay.estimated_delivery or "",
+            "tracking_notes": pay.tracking_notes or "",
+            "item_trackings": item_trackings,
+            "notes": notes_data.get("notes") or "",
+            "created_at": pay.created_at.isoformat() if pay.created_at else None,
+        }
+
+    # 2. Search in GiftRequest
+    req = db.query(GR).filter(
+        or_(
+            GR.reference_id.ilike(clean),
+            GR.invoice_no.ilike(clean),
+        )
+    ).first()
+
+    if req:
+        items = [
+            {
+                "id": "item_1",
+                "description": f"Bespoke Curation for {req.occasion}",
+                "hsn": "997212",
+                "qty": req.quantity or 1,
+                "unit": "PCS",
+                "rate": req.estimated_min_unit or 5000,
+                "gst_rate": 18,
+            }
+        ]
+        total_billed = req.estimated_max_total or (len(items) * (req.estimated_min_unit or 5000) * 1.18)
+        tracking_number = req.tracking_number or req.invoice_no or req.reference_id
+        courier_name = req.courier_name or "Blue Dart Express"
+        inv_date = req.invoice_date or (req.created_at.strftime("%Y-%m-%d") if req.created_at else "")
+
+        return {
+            "found": True,
+            "source": "commission",
+            "id": req.id,
+            "order_id": req.reference_id,
+            "invoice_no": req.invoice_no or req.reference_id,
+            "transaction_id": req.reference_id,
+            "invoice_date": inv_date,
+            "customer_name": req.client_name,
+            "customer_email": req.client_email,
+            "customer_phone": req.client_phone,
+            "customer_gstin": "",
+            "customer_address": req.delivery_city,
+            "customer_city": req.delivery_city,
+            "customer_state": "Telangana",
+            "customer_pincode": "",
+            "place_of_supply": "Telangana",
+            "reference_code": req.reference_id,
+            "purpose": f"Bespoke Commission for {req.occasion}",
+            "status": req.status,
+            "items": items,
+            "taxable": round(total_billed / 1.18, 2),
+            "total_gst": round(total_billed - (total_billed / 1.18), 2),
+            "grand_total": round(total_billed, 2),
+            "advance_amount": 0.0,
+            "advance_payment_mode": "Bank Transfer",
+            "remaining_amount": round(total_billed, 2),
+            "remaining_payment_mode": "Bank Transfer",
+            "total_billed": round(total_billed, 2),
+            "total_paid": 0.0,
+            "balance_due": round(total_billed, 2),
+            "tracking_status": req.tracking_status or "Order Confirmed",
+            "courier_name": courier_name,
+            "tracking_number": tracking_number,
+            "tracking_url": req.tracking_url or "",
+            "estimated_delivery": req.estimated_delivery or req.delivery_date,
+            "tracking_notes": req.tracking_notes or "",
+            "item_trackings": [
+                {
+                    "item_label": items[0]["description"],
+                    "quantity": items[0]["qty"],
+                    "courier_name": courier_name,
+                    "tracking_number": tracking_number,
+                    "tracking_status": req.tracking_status or "Order Confirmed",
+                    "status_step": 1,
+                    "tracking_url": req.tracking_url or "",
+                    "tracking_notes": req.tracking_notes or "",
+                }
+            ],
+            "notes": req.special_notes or "",
+            "created_at": req.created_at.isoformat() if req.created_at else None,
+        }
+
+    raise HTTPException(status_code=404, detail=f"No order found with Order ID or Invoice No '{clean}'.")
+
+
+@router.post("/api/orders/add-item")
+@router.post("/api/payments/add-item")
+def add_item_to_order(
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Public endpoint: Add a new item to an existing order.
+    The new item is added to the SAME order:
+    - Same order_id and invoice_no
+    - Same tracking_number & courier
+    - Dynamic advance payment option
+    - Updates per-item tracking and line items
+    - Records payment transaction for paid amount
+    """
+    from sqlalchemy import or_
+    from app.models.request import GiftRequest as GR
+
+    identifier = (
+        payload.get("order_id")
+        or payload.get("order_identifier")
+        or payload.get("invoice_no")
+        or payload.get("reference_code")
+        or ""
+    ).strip()
+
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Order ID or Invoice Number is required.")
+
+    raw_item = payload.get("item") or {}
+    if not raw_item.get("description") or not raw_item.get("rate"):
+        raise HTTPException(status_code=400, detail="Item description and rate are required.")
+
+    # 1. Search in PaymentRecord
+    parent = db.query(PaymentRecord).filter(
+        or_(
+            PaymentRecord.order_id.ilike(identifier),
+            PaymentRecord.invoice_no.ilike(identifier),
+            PaymentRecord.transaction_id.ilike(identifier),
+            PaymentRecord.reference_code.ilike(identifier),
+        )
+    ).order_by(PaymentRecord.id.asc()).first()
+
+    if not parent:
+        # Check GiftRequest
+        req = db.query(GR).filter(
+            or_(
+                GR.reference_id.ilike(identifier),
+                GR.invoice_no.ilike(identifier),
+            )
+        ).first()
+
+        if req:
+            # Create initial parent PaymentRecord for this GiftRequest so item can be added
+            inv_no = req.invoice_no or f"VAS/2026-27/{Math.floor(1000 + uuid.uuid4().int % 9000)}"
+            ord_id = req.reference_id
+            trk_no = req.tracking_number or inv_no
+            initial_item = {
+                "id": "item_1",
+                "description": f"Bespoke Curation for {req.occasion}",
+                "hsn": "997212",
+                "qty": req.quantity or 1,
+                "unit": "PCS",
+                "rate": req.estimated_min_unit or 5000,
+                "gst_rate": 18,
+            }
+            initial_total = req.estimated_max_total or (len([initial_item]) * (req.estimated_min_unit or 5000) * 1.18)
+            parent = PaymentRecord(
+                transaction_id=f"VAS-BILL-{uuid.uuid4().hex[:8].upper()}",
+                order_id=ord_id,
+                amount=initial_total,
+                currency="INR",
+                customer_name=req.client_name,
+                customer_email=req.client_email,
+                customer_phone=req.client_phone,
+                reference_code=req.reference_id,
+                purpose=f"Bespoke Commission for {req.occasion}",
+                payment_method="Commission Recorded Bill",
+                status="PAID",
+                invoice_no=inv_no,
+                tracking_status="Order Confirmed",
+                courier_name=req.courier_name or "Blue Dart Express",
+                tracking_number=trk_no,
+                item_tracking_json=json.dumps([
+                    {
+                        "item_label": initial_item["description"],
+                        "quantity": initial_item["qty"],
+                        "courier_name": req.courier_name or "Blue Dart Express",
+                        "tracking_number": trk_no,
+                        "tracking_status": "Order Confirmed",
+                        "status_step": 1,
+                    }
+                ]),
+                notes=json.dumps({
+                    "items": [initial_item],
+                    "customer_address": req.delivery_city,
+                    "taxable": round(initial_total / 1.18, 2),
+                    "total_gst": round(initial_total - (initial_total / 1.18), 2),
+                    "grand_total": initial_total,
+                    "advance_amount": initial_total,
+                    "remaining_amount": 0,
+                }),
+                created_at=datetime.utcnow(),
+            )
+            db.add(parent)
+            db.commit()
+            db.refresh(parent)
+        else:
+            raise HTTPException(status_code=404, detail=f"No order found for '{identifier}'.")
+
+    is_advance = bool(payload.get("is_advance"))
+    paid_amount = float(payload.get("paid_amount") or payload.get("payment_amount") or payload.get("advance_amount") or 0.0)
+    payment_method = payload.get("payment_method") or "Cashfree PG"
+    cust_name = payload.get("customer_name") or parent.customer_name
+    cust_email = payload.get("customer_email") or parent.customer_email
+    cust_phone = payload.get("customer_phone") or parent.customer_phone
+
+    result = process_add_item_to_order_record(
+        db=db,
+        parent=parent,
+        raw_item=raw_item,
+        is_advance=is_advance,
+        paid_amount=paid_amount,
+        payment_method=payment_method,
+        customer_name=cust_name,
+        customer_email=cust_email,
+        customer_phone=cust_phone,
+    )
+
+    # Trigger email notification
+    background_tasks.add_task(
+        send_payment_confirmation,
+        {
+            "transaction_id": result["transaction_id"],
+            "order_id": result["order_id"],
+            "amount": result["amount_paid"],
+            "customer_name": cust_name,
+            "customer_email": cust_email,
+            "customer_phone": cust_phone,
+            "reference_code": parent.reference_code,
+            "purpose": f"Item Added to Order {result['invoice_no']}: {raw_item.get('description')}",
+            "payment_method": payment_method,
+            "status": "PAID",
+            "created_at": datetime.utcnow().isoformat(),
+            "notes": f"Item added with tracking number: {result['tracking_number']}",
+        }
+    )
+
+    return result

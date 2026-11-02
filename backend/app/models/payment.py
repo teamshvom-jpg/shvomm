@@ -8,7 +8,7 @@ class PaymentRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     transaction_id = Column(String(64), unique=True, index=True, nullable=False)
-    order_id = Column(String(64), unique=True, index=True, nullable=True)
+    order_id = Column(String(64), index=True, nullable=True)
     cf_order_id = Column(String(64), nullable=True)
     payment_session_id = Column(String(255), nullable=True)
     amount = Column(Float, nullable=False)
@@ -23,6 +23,7 @@ class PaymentRecord(Base):
     
     # Fulfillment & Tracking
     invoice_no = Column(String(64), nullable=True, index=True)
+    invoice_date = Column(String(32), nullable=True)
     tracking_status = Column(String(64), default="Payment Verified", nullable=True)
     courier_name = Column(String(128), nullable=True)
     tracking_number = Column(String(128), nullable=True)

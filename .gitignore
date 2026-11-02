@@ -28,3 +28,4 @@ shvom.db
 # OS / Editor
 .DS_Store
 Thumbs.db
+.neon

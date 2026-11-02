@@ -1,12 +1,36 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./shvom.db")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+
+# Load backend/.env for local environment configuration
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+load_dotenv()
+
+# Neon PostgreSQL production connection string (persists permanently across deployments)
+NEON_DATABASE_URL = (
+    os.getenv("NEON_DATABASE_URL")
+    or "postgresql://neondb_owner:npg_MG7Ibr5mvauZ@ep-old-night-b3e5wsj6.c-4.ap-southeast-1.aws.neon.tech/neondb?channel_binding=require&sslmode=require"
+)
+
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+# When deployed on Render (RENDER environment variable is present), use Neon PostgreSQL
+if os.environ.get("RENDER"):
+    if not DATABASE_URL or DATABASE_URL.startswith("sqlite"):
+        DATABASE_URL = NEON_DATABASE_URL
 
 # Convert postgres:// to postgresql:// for SQLAlchemy compatibility (common on cloud hosts)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# For localhost development, default to local SQLite database (backend/shvom.db)
+if not DATABASE_URL or DATABASE_URL == "sqlite:///./shvom.db":
+    db_file = os.path.join(BASE_DIR, "shvom.db").replace("\\", "/")
+    DATABASE_URL = f"sqlite:///{db_file}"
 
 # Convert mysql:// to mysql+pymysql:// for Hostinger MySQL compatibility
 if DATABASE_URL.startswith("mysql://"):
@@ -86,6 +110,8 @@ def migrate_db_schema():
                     conn.execute(text("ALTER TABLE payments ADD COLUMN tracking_notes TEXT"))
                 if "item_tracking_json" not in cols:
                     conn.execute(text("ALTER TABLE payments ADD COLUMN item_tracking_json TEXT"))
+                if "invoice_date" not in cols:
+                    conn.execute(text("ALTER TABLE payments ADD COLUMN invoice_date VARCHAR(32)"))
                 conn.commit()
 
             # 2. Check table columns for gift_requests
@@ -108,6 +134,8 @@ def migrate_db_schema():
                     conn.execute(text("ALTER TABLE gift_requests ADD COLUMN tracking_notes TEXT"))
                 if "item_tracking_json" not in cols_req:
                     conn.execute(text("ALTER TABLE gift_requests ADD COLUMN item_tracking_json TEXT"))
+                if "invoice_date" not in cols_req:
+                    conn.execute(text("ALTER TABLE gift_requests ADD COLUMN invoice_date VARCHAR(32)"))
                 conn.commit()
     except Exception:
         # Ignore if table doesn't exist yet or non-sqlite engine
