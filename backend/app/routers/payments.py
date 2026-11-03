@@ -1095,3 +1095,359 @@ def add_item_to_order(
     )
 
     return result
+
+
+@router.post("/api/admin/bills")
+@router.post("/api/bills")
+@router.post("/api/payments/bills")
+def record_admin_bill_payments_route(payload: dict, db: Session = Depends(get_db)):
+    """
+    Direct endpoint for creating or updating bills / installment invoices in payments database.
+    """
+    is_existing = bool(payload.get("is_existing_bill"))
+    req_id = payload.get("id") or payload.get("payment_id")
+    req_order_id = payload.get("order_id")
+    req_invoice_no = payload.get("invoice_no")
+
+    existing_bill = None
+    if is_existing:
+        if req_id:
+            try:
+                existing_bill = db.query(PaymentRecord).filter(PaymentRecord.id == int(req_id)).first()
+            except (ValueError, TypeError):
+                existing_bill = None
+        if not existing_bill and req_invoice_no:
+            existing_bill = db.query(PaymentRecord).filter(PaymentRecord.invoice_no == str(req_invoice_no).strip()).first()
+        if not existing_bill and req_order_id:
+            existing_bill = db.query(PaymentRecord).filter(PaymentRecord.order_id == str(req_order_id).strip()).first()
+
+    unique_suffix = uuid.uuid4().hex[:8].upper()
+    transaction_id = payload.get("transaction_id") or (existing_bill.transaction_id if existing_bill else f"VAS-BILL-{unique_suffix}")
+    if not existing_bill and transaction_id:
+        if db.query(PaymentRecord).filter(PaymentRecord.transaction_id == transaction_id).first():
+            transaction_id = f"VAS-BILL-{unique_suffix}"
+    order_id = req_order_id or (existing_bill.order_id if existing_bill else f"ORDER-{unique_suffix}")
+    invoice_no = req_invoice_no or (existing_bill.invoice_no if existing_bill else None)
+    if not invoice_no:
+        year_str = "2026-27"
+        while True:
+            seq = 1000 + (uuid.uuid4().int % 9000)
+            candidate = f"VAS/{year_str}/{seq}"
+            if not db.query(PaymentRecord).filter(PaymentRecord.invoice_no == candidate).first():
+                invoice_no = candidate
+                break
+
+    amount = float(payload.get("amount", existing_bill.amount if existing_bill else 0.0))
+    customer_name = (payload.get("customer_name") or (existing_bill.customer_name if existing_bill else "Valued Patron")).strip()
+    customer_email = (payload.get("customer_email") or (existing_bill.customer_email if existing_bill else "concierge@vasanta.in")).strip()
+    customer_phone = payload.get("customer_phone", "").strip() if payload.get("customer_phone") else (existing_bill.customer_phone if existing_bill else None)
+    reference_code = payload.get("reference_code", "").strip() if payload.get("reference_code") else (existing_bill.reference_code if existing_bill else None)
+    purpose = payload.get("purpose", existing_bill.purpose if existing_bill else "Atelier Commission & Gifting Services")
+
+    notes = payload.get("notes")
+    if isinstance(notes, (dict, list)):
+        notes = json.dumps(notes)
+    elif notes is not None:
+        notes = str(notes)
+    elif existing_bill:
+        notes = existing_bill.notes
+
+    item_tracking_json = payload.get("item_tracking_json")
+    if isinstance(item_tracking_json, list):
+        item_tracking_json = json.dumps(item_tracking_json)
+    elif item_tracking_json is not None:
+        item_tracking_json = str(item_tracking_json)
+    elif existing_bill:
+        item_tracking_json = existing_bill.item_tracking_json
+
+    tracking_number = payload.get("tracking_number") or (existing_bill.tracking_number if existing_bill else invoice_no)
+    courier_name = payload.get("courier_name") or (existing_bill.courier_name if existing_bill else "Blue Dart Express")
+    invoice_date = payload.get("invoice_date") or (existing_bill.invoice_date if existing_bill else None)
+
+    custom_created_at = None
+    if invoice_date:
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                custom_created_at = datetime.strptime(invoice_date, fmt)
+                break
+            except Exception:
+                pass
+
+    if existing_bill:
+        existing_bill.amount = amount
+        existing_bill.currency = payload.get("currency", existing_bill.currency or "INR")
+        existing_bill.customer_name = customer_name
+        existing_bill.customer_email = customer_email
+        existing_bill.customer_phone = customer_phone
+        existing_bill.reference_code = reference_code
+        existing_bill.purpose = purpose
+        existing_bill.payment_method = payload.get("payment_method", existing_bill.payment_method)
+        existing_bill.status = payload.get("status", existing_bill.status)
+        existing_bill.invoice_no = invoice_no
+        existing_bill.tracking_status = payload.get("tracking_status", existing_bill.tracking_status)
+        existing_bill.courier_name = courier_name
+        existing_bill.tracking_number = tracking_number
+        existing_bill.item_tracking_json = item_tracking_json
+        existing_bill.notes = notes
+        existing_bill.invoice_date = invoice_date
+        if custom_created_at:
+            existing_bill.created_at = custom_created_at
+        existing_bill.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing_bill)
+        target_bill = existing_bill
+    else:
+        new_bill = PaymentRecord(
+            transaction_id=transaction_id,
+            order_id=order_id,
+            amount=amount,
+            currency=payload.get("currency", "INR"),
+            customer_name=customer_name,
+            customer_email=customer_email,
+            customer_phone=customer_phone,
+            reference_code=reference_code,
+            purpose=purpose,
+            payment_method=payload.get("payment_method", "Admin Generated Bill"),
+            status=payload.get("status", "PAID"),
+            invoice_no=invoice_no,
+            tracking_status=payload.get("tracking_status", "Order Confirmed"),
+            courier_name=courier_name,
+            tracking_number=tracking_number,
+            item_tracking_json=item_tracking_json,
+            notes=notes,
+            invoice_date=invoice_date,
+            created_at=custom_created_at or datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(new_bill)
+        db.commit()
+        db.refresh(new_bill)
+        target_bill = new_bill
+
+    return {
+        "success": True,
+        "id": target_bill.id,
+        "transaction_id": target_bill.transaction_id,
+        "order_id": target_bill.order_id,
+        "invoice_no": target_bill.invoice_no,
+        "amount": target_bill.amount,
+        "currency": target_bill.currency or "INR",
+        "status": target_bill.status,
+        "customer_name": target_bill.customer_name,
+        "customer_email": target_bill.customer_email,
+        "customer_phone": target_bill.customer_phone,
+        "reference_code": target_bill.reference_code,
+        "purpose": target_bill.purpose,
+        "payment_method": target_bill.payment_method,
+        "tracking_status": target_bill.tracking_status or "Order Confirmed",
+        "courier_name": target_bill.courier_name,
+        "tracking_number": target_bill.tracking_number,
+        "notes": target_bill.notes,
+        "invoice_date": target_bill.invoice_date,
+        "created_at": target_bill.created_at.isoformat() if target_bill.created_at else None,
+        "updated_at": target_bill.updated_at.isoformat() if target_bill.updated_at else None,
+    }
+
+
+@router.post("/api/admin/payments/record-balance")
+@router.post("/api/payments/record-balance")
+def record_balance_payments_route(payload: dict, db: Session = Depends(get_db)):
+    """
+    Direct endpoint to record balance payments without Cashfree redirect.
+    """
+    from sqlalchemy import or_
+    clean = (payload.get("order_id") or payload.get("invoice_no") or payload.get("identifier") or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="Order ID or Invoice Number is required.")
+
+    parent = db.query(PaymentRecord).filter(
+        or_(
+            PaymentRecord.order_id.ilike(clean),
+            PaymentRecord.invoice_no.ilike(clean),
+            PaymentRecord.transaction_id.ilike(clean),
+            PaymentRecord.reference_code.ilike(clean),
+        )
+    ).order_by(PaymentRecord.id.asc()).first()
+
+    if not parent:
+        raise HTTPException(status_code=404, detail=f"No order found matching '{clean}'")
+
+    raw_amt = payload.get("amount")
+    try:
+        amount = round(float(raw_amt), 2)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid payment amount.")
+
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be greater than zero.")
+
+    payment_mode = (payload.get("payment_mode") or "Bank Transfer").strip()
+    invoice_date = (payload.get("invoice_date") or "").strip()
+
+    notes_data = {}
+    try:
+        notes_data = json.loads(parent.notes) if parent.notes else {}
+    except Exception:
+        notes_data = {}
+
+    advance_amount = float(notes_data.get("advance_amount") or 0.0)
+    extra_payments = list(notes_data.get("extra_payments") or [])
+
+    idx = len(extra_payments)
+    num = idx + 2
+    if num % 10 == 2 and num % 100 != 12:
+        suffix = "nd"
+    elif num % 10 == 3 and num % 100 != 13:
+        suffix = "rd"
+    else:
+        suffix = "th"
+    payment_label = payload.get("payment_label") or f"{num}{suffix} Payment"
+
+    new_entry = {
+        "label": payment_label,
+        "amount": amount,
+        "payment_mode": payment_mode,
+        "date": invoice_date or datetime.utcnow().strftime("%Y-%m-%d"),
+    }
+    extra_payments.append(new_entry)
+    notes_data["extra_payments"] = extra_payments
+
+    taxable = float(notes_data.get("taxable") or 0.0)
+    total_gst = float(notes_data.get("total_gst") or 0.0)
+    total_billed = float(
+        notes_data.get("grand_total")
+        or notes_data.get("grandTotal")
+        or (taxable + total_gst if (taxable + total_gst) > 0 else 0.0)
+        or parent.amount
+        or 0.0
+    )
+
+    total_paid_so_far = advance_amount + sum(float(p.get("amount") or 0.0) for p in extra_payments)
+    new_remaining = max(0.0, round(total_billed - total_paid_so_far, 2))
+    notes_data["remaining_amount"] = new_remaining
+
+    parent.notes = json.dumps(notes_data)
+    parent.status = "PAID" if new_remaining <= 0 else "PARTIAL"
+    if invoice_date:
+        parent.invoice_date = invoice_date
+    parent.updated_at = datetime.utcnow()
+
+    txn_id = f"SHV-BAL-{uuid.uuid4().hex[:8].upper()}"
+    custom_dt = None
+    if invoice_date:
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                custom_dt = datetime.strptime(invoice_date, fmt)
+                break
+            except Exception:
+                pass
+
+    balance_record = PaymentRecord(
+        transaction_id=txn_id,
+        order_id=parent.order_id,
+        invoice_no=parent.invoice_no,
+        amount=amount,
+        currency="INR",
+        customer_name=parent.customer_name,
+        customer_email=parent.customer_email,
+        customer_phone=parent.customer_phone,
+        reference_code=parent.reference_code or parent.order_id,
+        purpose=f"Balance Payment ({payment_label}): {parent.invoice_no or parent.order_id}",
+        payment_method=payment_mode,
+        status="PAID",
+        tracking_status=parent.tracking_status or "Order Confirmed",
+        courier_name=parent.courier_name,
+        tracking_number=parent.tracking_number,
+        item_tracking_json=parent.item_tracking_json,
+        notes=json.dumps({
+            "action": "balance_payment",
+            "parent_order_id": parent.order_id,
+            "parent_invoice_no": parent.invoice_no,
+            "payment_label": payment_label,
+            "amount": amount,
+            "payment_mode": payment_mode,
+            "remaining_balance": new_remaining,
+            "invoice_date": invoice_date,
+        }),
+        invoice_date=invoice_date or parent.invoice_date,
+        created_at=custom_dt or datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(balance_record)
+    db.commit()
+    db.refresh(parent)
+    db.refresh(balance_record)
+
+    return {
+        "success": True,
+        "message": f"Payment of ₹{amount:,.2f} recorded successfully ({payment_label}).",
+        "receipt": {
+            "transaction_id": balance_record.transaction_id,
+            "order_id": parent.order_id,
+            "invoice_no": parent.invoice_no,
+            "amount": total_billed,
+            "customer_name": parent.customer_name,
+            "customer_email": parent.customer_email,
+            "customer_phone": parent.customer_phone,
+            "status": parent.status,
+            "remaining_amount": new_remaining,
+            "payment_label": payment_label,
+        }
+    }
+
+
+@router.put("/api/admin/payments/{payment_id}")
+@router.patch("/api/admin/payments/{payment_id}")
+@router.put("/api/payments/{payment_id}")
+def update_payment_payments_route(payment_id: int, payload: dict, db: Session = Depends(get_db)):
+    """
+    Direct endpoint to update any field of an existing PaymentRecord.
+    """
+    record = db.query(PaymentRecord).filter(PaymentRecord.id == payment_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Payment record not found")
+
+    updatable_fields = [
+        "amount", "currency", "customer_name", "customer_email", "customer_phone",
+        "reference_code", "purpose", "payment_method", "status", "invoice_no",
+        "invoice_date", "tracking_status", "courier_name", "tracking_number",
+        "tracking_url", "estimated_delivery", "tracking_notes", "item_tracking_json",
+        "notes", "order_id", "transaction_id"
+    ]
+
+    for field in updatable_fields:
+        if field in payload:
+            val = payload[field]
+            if field in ("notes", "item_tracking_json") and isinstance(val, (dict, list)):
+                val = json.dumps(val)
+            elif field == "amount" and val is not None:
+                val = float(val)
+            setattr(record, field, val)
+
+    record.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "success": True,
+        "id": record.id,
+        "transaction_id": record.transaction_id,
+        "order_id": record.order_id,
+        "invoice_no": record.invoice_no,
+        "amount": record.amount,
+        "currency": record.currency,
+        "status": record.status,
+        "customer_name": record.customer_name,
+        "customer_email": record.customer_email,
+        "customer_phone": record.customer_phone,
+        "reference_code": record.reference_code,
+        "purpose": record.purpose,
+        "payment_method": record.payment_method,
+        "tracking_status": record.tracking_status,
+        "courier_name": record.courier_name,
+        "tracking_number": record.tracking_number,
+        "invoice_date": record.invoice_date,
+        "notes": record.notes,
+        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+    }
+
