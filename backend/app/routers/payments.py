@@ -439,6 +439,8 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
         total_gst = float(notes_data.get("total_gst") or 0.0)
         recorded_advance = float(notes_data.get("advance_amount") or 0.0)
         recorded_remaining = float(notes_data.get("remaining_amount") or 0.0)
+        extra_payments = list(notes_data.get("extra_payments") or [])
+        extra_paid = sum(float(p.get("amount") or 0.0) for p in extra_payments)
 
         total_billed = float(
             notes_data.get("grand_total")
@@ -449,21 +451,26 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
             or 0.0
         )
 
-        # Gather subsequent payments made against this invoice / reference (excluding main bill itself)
+        # Gather subsequent payments made against this order / invoice / reference (excluding main bill itself)
+        query_conditions = []
+        if pay.order_id:
+            query_conditions.append(PaymentRecord.order_id == pay.order_id)
+        if pay.reference_code:
+            query_conditions.append(PaymentRecord.reference_code.ilike(pay.reference_code))
+        if pay.invoice_no:
+            query_conditions.append(PaymentRecord.invoice_no.ilike(pay.invoice_no))
+
         subsequent_payments = db.query(PaymentRecord).filter(
             PaymentRecord.id != pay.id,
-            or_(
-                PaymentRecord.reference_code.ilike(pay.reference_code) if pay.reference_code else False,
-                PaymentRecord.invoice_no.ilike(pay.invoice_no) if pay.invoice_no else False,
-            )
+            or_(*query_conditions) if query_conditions else False
         ).all()
         paid_statuses = {"PAID", "COMPLETED", "BILLED", "SUCCESS"}
         subsequent_paid = sum(
             p.amount for p in subsequent_payments if (p.status or "").upper() in paid_statuses
         )
 
-        if recorded_remaining > 0 or recorded_advance > 0:
-            total_paid = min(total_billed, round(recorded_advance + subsequent_paid, 2))
+        if recorded_remaining > 0 or recorded_advance > 0 or extra_paid > 0:
+            total_paid = min(total_billed, max(round(recorded_advance + extra_paid, 2), round(recorded_advance + subsequent_paid, 2)))
             balance_due = max(0.0, round(total_billed - total_paid, 2))
         elif (pay.status or "").upper() in {"PENDING", "PROFORMA", "UNPAID"}:
             total_paid = round(subsequent_paid, 2)
@@ -486,6 +493,11 @@ def get_balance_due(identifier: str, db: Session = Depends(get_db)):
             "total_billed": round(total_billed, 2),
             "total_paid": round(total_paid, 2),
             "balance_due": round(balance_due, 2),
+            "advance_amount": round(recorded_advance, 2),
+            "advance_payment_mode": notes_data.get("advance_payment_mode") or "Bank Transfer",
+            "extra_payments": extra_payments,
+            "remaining_amount": round(recorded_remaining if recorded_remaining > 0 else balance_due, 2),
+            "remaining_payment_mode": notes_data.get("remaining_payment_mode") or "Bank Transfer",
             "notes": pay.notes,
             "items": notes_data.get("items") or [],
             "payments": [
@@ -767,8 +779,11 @@ def get_order_details(identifier: str, db: Session = Depends(get_db)):
             p.amount for p in subsequent_payments if (p.status or "").upper() in paid_statuses
         )
 
-        if recorded_remaining > 0 or recorded_advance > 0:
-            total_paid = min(total_billed, round(recorded_advance + subsequent_paid, 2))
+        extra_payments = list(notes_data.get("extra_payments") or [])
+        extra_paid = sum(float(p.get("amount") or 0.0) for p in extra_payments)
+
+        if recorded_remaining > 0 or recorded_advance > 0 or extra_paid > 0:
+            total_paid = min(total_billed, max(round(recorded_advance + extra_paid, 2), round(recorded_advance + subsequent_paid, 2)))
             balance_due = max(0.0, round(total_billed - total_paid, 2))
         elif (pay.status or "").upper() in {"PENDING", "PROFORMA", "UNPAID"}:
             total_paid = round(subsequent_paid, 2)
@@ -832,6 +847,7 @@ def get_order_details(identifier: str, db: Session = Depends(get_db)):
             "grand_total": round(total_billed, 2),
             "advance_amount": round(recorded_advance, 2),
             "advance_payment_mode": notes_data.get("advance_payment_mode") or "Bank Transfer",
+            "extra_payments": extra_payments,
             "remaining_amount": round(recorded_remaining if recorded_remaining > 0 else balance_due, 2),
             "remaining_payment_mode": notes_data.get("remaining_payment_mode") or "Bank Transfer",
             "total_billed": round(total_billed, 2),
@@ -984,7 +1000,7 @@ def add_item_to_order(
 
         if req:
             # Create initial parent PaymentRecord for this GiftRequest so item can be added
-            inv_no = req.invoice_no or f"VAS/2026-27/{Math.floor(1000 + uuid.uuid4().int % 9000)}"
+            inv_no = req.invoice_no or f"VAS/2026-27/{1000 + (uuid.uuid4().int % 9000)}"
             ord_id = req.reference_id
             trk_no = req.tracking_number or inv_no
             initial_item = {
