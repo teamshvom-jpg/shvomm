@@ -16,7 +16,7 @@ BRAND_CONFIG = {
         "of your celebration or corporate milestone. Handcrafted, bespoke, and discreetly luxurious."
     ),
     "contact": {
-        "email": "team.shvom@gmail.com",
+        "email": "support@shvom.in",
         "support_email": "support@shvom.in",
         "gstin": "36AHEPC4719K1ZD",
         "billing_name": "Shvom Enterprises",

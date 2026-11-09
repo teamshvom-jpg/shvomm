@@ -494,56 +494,103 @@ def notify_team_new_request(request_data: dict):
 
 
 def send_client_confirmation(request_data: dict):
+    """
+    Sends a warm confirmation email to the customer immediately after they submit
+    a gifting commission request — letting them know we've received it and will get back to them.
+    """
     cfg = get_mail_config()
     ref_id = request_data.get('reference_id', 'N/A')
     client_name = request_data.get('client_name', 'Valued Patron')
-    answers = request_data.get("answers") or {}
-    special_notes = request_data.get("special_notes")
-    logo_url = request_data.get("logo_url")
-    reference_image_url = request_data.get("reference_image_url")
+    client_email = request_data.get('client_email', '')
+    quantity = request_data.get('quantity', '')
+    city = request_data.get('delivery_city', '')
+    occasion = str(request_data.get('occasion', '')).replace('_', ' ').title()
+    support_email = BRAND_CONFIG['contact']['support_email']
 
-    specs_html, specs_text = format_specifications_section(
-        answers=answers,
-        special_notes=special_notes,
-        logo_url=logo_url,
-        reference_image_url=reference_image_url
-    )
+    if not client_email:
+        logger.warning("[CLIENT CONFIRMATION] No client_email provided — skipping confirmation send.")
+        return
 
-    subject = f"Your Commission Summary & Proposal Ref: {ref_id} | Shvom"
+    subject = f"We've Received Your Request — Ref: {ref_id} | Shvom"
     html = f"""
-    <div style="font-family: Georgia, serif; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 24px; background: #faf8f5;">
-        <h1 style="font-size: 22px; font-weight: normal; letter-spacing: 0.15em; text-align: center; margin-bottom: 8px;">
-            S H V O M
-        </h1>
-        <p style="text-align: center; font-size: 12px; color: #b89b6a; margin-top: 0; font-style: italic;">
-            {BRAND_CONFIG['tagline']}
-        </p>
-        <hr style="border: none; border-top: 1px solid #e5e0d8; margin: 20px 0;" />
-        <p>Dear {client_name},</p>
-        <p>
-            Thank you for entrusting your celebration's parting memory to Shvom. We have registered your bespoke commission under proposal reference <strong>{ref_id}</strong>.
-        </p>
-        <p>
-            Our creative director and atelier concierge will review your selections ({request_data.get('quantity')} units for {request_data.get('delivery_city')}) and prepare a formal design moodboard and customized quotation within 24 hours.
-        </p>
-        <div style="background: #ffffff; padding: 16px; border: 1px solid #e5e0d8; margin: 20px 0;">
-            <p style="margin: 0; font-size: 13px; color: #8e8880;">Indicative Total Commission Range:</p>
-            <p style="margin: 4px 0 0 0; font-size: 18px; font-weight: bold; color: #1a1a1a;">
-                INR ₹{request_data.get('estimated_min_total', 0):,.0f} &ndash; ₹{request_data.get('estimated_max_total', 0):,.0f}
+    <div style="font-family: Georgia, serif; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 32px 24px; background: #faf8f5;">
+
+        <!-- Header -->
+        <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="font-size: 24px; font-weight: normal; letter-spacing: 0.2em; margin: 0 0 6px 0;">S H V O M</h1>
+            <p style="font-size: 12px; color: #b89b6a; margin: 0; font-style: italic; letter-spacing: 0.08em;">
+                {BRAND_CONFIG['tagline']}
             </p>
         </div>
 
-        {specs_html}
+        <hr style="border: none; border-top: 1px solid #e5e0d8; margin: 0 0 28px 0;" />
 
-        <p style="font-size: 13px; color: #5a5a58; margin-top: 24px;">
-            Should you wish to refine your specifications or discuss bespoke sampling immediately, reach our concierge at 
-            <a href="mailto:{BRAND_CONFIG['contact']['email']}" style="color: #1a1a1a;">{BRAND_CONFIG['contact']['email']}</a> 
-            or via WhatsApp at {BRAND_CONFIG['contact']['phone']}.
+        <!-- Greeting -->
+        <p style="font-size: 15px; margin: 0 0 16px 0;">Dear {client_name},</p>
+
+        <!-- Main message -->
+        <p style="font-size: 15px; line-height: 1.7; margin: 0 0 16px 0;">
+            Thank you for reaching out to Shvom. We have <strong>successfully received your gifting commission request</strong>
+            and our concierge team is already on it.
         </p>
-        <p style="margin-top: 30px; font-size: 14px;">Warmest regards,<br/><strong>The Concierge at Shvom</strong></p>
+        <p style="font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
+            We will review your requirements and get back to you within <strong>24 hours</strong> with a curated proposal,
+            design moodboard, and customised quotation.
+        </p>
+
+        <!-- Reference box -->
+        <div style="background: #ffffff; border: 1px solid #e5e0d8; border-left: 4px solid #b89b6a; padding: 18px 20px; margin: 0 0 24px 0; border-radius: 2px;">
+            <p style="margin: 0 0 10px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #8e8880;">Your Request Summary</p>
+            <table style="width: 100%; font-size: 14px; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 4px 0; color: #8e8880; width: 40%;">Reference ID</td>
+                    <td style="padding: 4px 0; font-weight: bold; color: #b89b6a;">{ref_id}</td>
+                </tr>
+                {'<tr><td style="padding: 4px 0; color: #8e8880;">Occasion</td><td style="padding: 4px 0;">' + occasion + '</td></tr>' if occasion else ''}
+                {'<tr><td style="padding: 4px 0; color: #8e8880;">Quantity</td><td style="padding: 4px 0;">' + str(quantity) + ' units</td></tr>' if quantity else ''}
+                {'<tr><td style="padding: 4px 0; color: #8e8880;">Delivery City</td><td style="padding: 4px 0;">' + city + '</td></tr>' if city else ''}
+            </table>
+        </div>
+
+        <!-- CTA / contact nudge -->
+        <p style="font-size: 13px; line-height: 1.6; color: #5a5a58; margin: 0 0 28px 0;">
+            In the meantime, if you have any questions or wish to add more details to your request,
+            simply reply to this email or write to us at
+            <a href="mailto:{support_email}" style="color: #1a1a1a; text-decoration: underline;">{support_email}</a>.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e0d8; margin: 0 0 20px 0;" />
+
+        <!-- Sign-off -->
+        <p style="font-size: 14px; margin: 0 0 4px 0;">Warmest regards,</p>
+        <p style="font-size: 14px; font-weight: bold; margin: 0 0 4px 0;">The Concierge at Shvom</p>
+        <p style="font-size: 12px; color: #8e8880; margin: 0;">
+            <a href="mailto:{support_email}" style="color: #8e8880; text-decoration: none;">{support_email}</a>
+        </p>
+
     </div>
     """
-    send_email_notification(request_data.get("client_email"), subject, html, text_body=f"Proposal Ref: {ref_id}\n{specs_text}")
+
+    text_body = f"""Dear {client_name},
+
+Thank you for reaching out to Shvom. We have successfully received your gifting commission request and our concierge team is already on it.
+
+We will get back to you within 24 hours with a curated proposal, design moodboard and customised quotation.
+
+Your Request Details:
+  Reference ID : {ref_id}
+  Occasion     : {occasion}
+  Quantity     : {quantity} units
+  Delivery City: {city}
+
+If you have any questions, reply to this email or write to us at {support_email}.
+
+Warmest regards,
+The Concierge at Shvom
+{support_email}
+"""
+
+    send_email_notification(client_email, subject, html, text_body=text_body)
 
 
 def notify_team_new_consultation(booking_data: dict):
