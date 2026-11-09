@@ -56,21 +56,25 @@ def send_via_resend(cfg: Dict[str, Any], to_email: str, subject: str, html_body:
         import httpx
         from_header = cfg["mail_from"]
 
-        # Use verified sender domain from config (set via RESEND_FROM_DOMAIN env var or defaults to support@shvom.in)
+        # Build sender address:
+        # 1. Use RESEND_FROM_DOMAIN env if explicitly set (e.g. "Shvom Atelier <support@shvom.in>")
+        # 2. If mail_from is a verified domain address (non-Gmail), use it directly
+        # 3. Fall back to onboarding@resend.dev (Resend sandbox — only delivers to account owner)
         resend_from = cfg.get("resend_from_domain", "").strip()
         if resend_from:
             sender = resend_from if "<" in resend_from else f"Shvom Atelier <{resend_from}>"
-        elif "@gmail.com" in from_header.lower():
-            # Resend free tier with no verified domain: can only deliver to account owner email.
-            # We still attempt — if it's the same as team_email it'll work; otherwise log warning.
-            sender = "Shvom Atelier <onboarding@resend.dev>"
-            logger.info(
-                f"[RESEND] Using onboarding@resend.dev sender. "
-                f"Note: without a verified domain, Resend can only deliver to the account-owner email. "
-                f"Set RESEND_FROM_DOMAIN env var with a verified domain sender to send to any address."
-            )
-        else:
+        elif from_header and "@gmail.com" not in from_header.lower():
+            # Verified custom domain — use directly
             sender = f"Shvom Atelier <{from_header}>"
+        else:
+            # No verified domain configured — use Resend sandbox sender
+            sender = "Shvom Atelier <onboarding@resend.dev>"
+            logger.warning(
+                "[RESEND] Using onboarding@resend.dev — this only delivers to the Resend account-owner email. "
+                "Set MAIL_FROM=support@shvom.in and RESEND_FROM_DOMAIN='Shvom Atelier <support@shvom.in>' on Render."
+            )
+
+        logger.info(f"[RESEND] Sending from '{sender}' to '{to_email}' | Subject: {subject}")
 
         payload = {
             "from": sender,
@@ -214,6 +218,14 @@ def send_email_notification(to_email: str, subject: str, html_body: str, text_bo
     Tries HTTPS REST APIs first (immune to serverless socket drops), then falls back to SMTP.
     """
     cfg = get_mail_config()
+
+    # Guard: skip if no recipient
+    if not to_email or not to_email.strip():
+        logger.warning(f"[MAIL SKIPPED] No recipient email provided. Subject: {subject}")
+        return False
+
+    to_email = to_email.strip()
+    logger.info(f"[MAIL DISPATCH] To: {to_email} | Subject: {subject}")
 
     # 1. Check for HTTPS REST APIs (best for Vercel Serverless)
     if cfg["resend_api_key"]:

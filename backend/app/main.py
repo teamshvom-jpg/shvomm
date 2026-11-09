@@ -142,6 +142,8 @@ def health_check():
         "service": "Bespoke Gifting Studio Engine",
         "email_delivery": {
             "team_email": cfg["team_email"],
+            "mail_from": cfg["mail_from"],
+            "resend_from_domain": cfg.get("resend_from_domain", "NOT SET"),
             "smtp_configured": bool(cfg["smtp_host"] and cfg["smtp_user"] and cfg["smtp_password"]),
             "smtp_host": cfg["smtp_host"],
             "smtp_port": cfg["smtp_port"],
@@ -149,4 +151,35 @@ def health_check():
             "brevo_configured": bool(cfg["brevo_api_key"]),
             "is_serverless": bool(os.environ.get("VERCEL"))
         }
+    }
+
+
+@app.get("/api/test-email")
+def test_email_send(to: str = "support@shvom.in"):
+    """
+    Debug endpoint: sends a test email to the specified address.
+    Usage: GET /api/test-email?to=customer@example.com
+    """
+    from app.services.mailer import send_email_notification, get_mail_config
+    cfg = get_mail_config()
+    ok = send_email_notification(
+        to_email=to,
+        subject="Shvom — Email Test",
+        html_body=f"""
+        <div style="font-family: Georgia, serif; padding: 24px; background: #faf8f5; color: #1a1a1a;">
+            <h2 style="font-weight: normal; letter-spacing: 0.15em;">S H V O M — Email Test</h2>
+            <p>This is a test email sent to <strong>{to}</strong>.</p>
+            <p>Sender: <code>{cfg.get('resend_from_domain') or cfg.get('mail_from')}</code></p>
+            <p>If you can read this, email delivery is working correctly ✅</p>
+        </div>
+        """,
+        text_body=f"Shvom email test — sent to {to}. If you can read this, email delivery is working."
+    )
+    return {
+        "success": ok,
+        "sent_to": to,
+        "sender": cfg.get("resend_from_domain") or cfg.get("mail_from"),
+        "resend_configured": bool(cfg["resend_api_key"]),
+        "mail_from": cfg["mail_from"],
+        "resend_from_domain": cfg.get("resend_from_domain", "NOT SET"),
     }
