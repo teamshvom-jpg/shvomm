@@ -29,28 +29,46 @@ def get_mail_config() -> Dict[str, Any]:
     clean_pwd = raw_pwd.strip().replace(" ", "") if raw_pwd else ""
 
     return {
-        "smtp_host": os.getenv("SMTP_HOST", "smtp.gmail.com").strip(),
-        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
-        "smtp_user": os.getenv("SMTP_USER", "team.shvom@gmail.com").strip(),
+        "smtp_host": os.getenv("SMTP_HOST", "smtp.hostinger.com").strip(),
+        "smtp_port": int(os.getenv("SMTP_PORT", "465")),
+        "smtp_user": os.getenv("SMTP_USER", "support@shvom.in").strip(),
         "smtp_password": clean_pwd,
-        "mail_from": os.getenv("MAIL_FROM", "team.shvom@gmail.com").strip(),
-        "team_email": os.getenv("TEAM_NOTIFICATION_EMAIL", "team.shvom@gmail.com").strip(),
+        "mail_from": os.getenv("MAIL_FROM", "support@shvom.in").strip(),
+        "team_email": os.getenv("TEAM_NOTIFICATION_EMAIL", "support@shvom.in").strip(),
         "resend_api_key": os.getenv("RESEND_API_KEY", "").strip(),
-        "brevo_api_key": os.getenv("BREVO_API_KEY", "").strip()
+        "brevo_api_key": os.getenv("BREVO_API_KEY", "").strip(),
+        "resend_from_domain": os.getenv("RESEND_FROM_DOMAIN", "Shvom Atelier <support@shvom.in>").strip(),
     }
 
 
 def send_via_resend(cfg: Dict[str, Any], to_email: str, subject: str, html_body: str, text_body: str = "") -> Tuple[bool, str]:
     """
     Sends email via Resend HTTPS REST API (port 443).
-    100% immune to Vercel/AWS outbound SMTP socket blocking.
+    100% immune to Vercel/AWS/Render outbound SMTP socket blocking.
+
+    Sender logic:
+    - If RESEND_FROM_DOMAIN env var is set (e.g. "notifications@shvom.in"), use that as sender
+      (requires the domain to be verified in Resend dashboard).
+    - Otherwise fall back to onboarding@resend.dev which only delivers to the Resend account owner.
+      In that case, to still reach team_email, we set reply-to so replies come back correctly.
     """
     try:
         import httpx
         from_header = cfg["mail_from"]
-        # Resend test domain requires onboarding sender if custom domain not verified
-        if "@gmail.com" in from_header.lower():
+
+        # Use verified sender domain from config (set via RESEND_FROM_DOMAIN env var or defaults to support@shvom.in)
+        resend_from = cfg.get("resend_from_domain", "").strip()
+        if resend_from:
+            sender = resend_from if "<" in resend_from else f"Shvom Atelier <{resend_from}>"
+        elif "@gmail.com" in from_header.lower():
+            # Resend free tier with no verified domain: can only deliver to account owner email.
+            # We still attempt — if it's the same as team_email it'll work; otherwise log warning.
             sender = "Shvom Atelier <onboarding@resend.dev>"
+            logger.info(
+                f"[RESEND] Using onboarding@resend.dev sender. "
+                f"Note: without a verified domain, Resend can only deliver to the account-owner email. "
+                f"Set RESEND_FROM_DOMAIN env var with a verified domain sender to send to any address."
+            )
         else:
             sender = f"Shvom Atelier <{from_header}>"
 
