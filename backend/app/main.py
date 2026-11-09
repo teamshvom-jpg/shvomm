@@ -1,7 +1,15 @@
 import os
+import sys
 import json
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+
+# Ensure the backend directory is on sys.path so `app.*` imports always resolve,
+# whether started via `uvicorn app.main:app --app-dir backend` (local) or
+# `uvicorn main:app` from inside the backend directory (Render/Docker).
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 # Load environment configuration
 load_dotenv()
