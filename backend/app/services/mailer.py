@@ -519,7 +519,6 @@ def send_client_confirmation(request_data: dict):
         city = request_data.get('delivery_city', '')
         occasion = str(request_data.get('occasion', '')).replace('_', ' ').title()
         support_email = BRAND_CONFIG['contact'].get('support_email') or BRAND_CONFIG['contact'].get('email', 'support@shvom.in')
-        phone = BRAND_CONFIG['contact'].get('phone', '')
 
         logger.info(f"[CLIENT CONFIRMATION] Detected client email: '{client_email}' for request ref {ref_id}")
 
@@ -572,7 +571,7 @@ def send_client_confirmation(request_data: dict):
             <p style="font-size: 13px; line-height: 1.6; color: #5a5a58; margin: 0 0 28px 0;">
                 In the meantime, if you have any questions or wish to add more details to your request,
                 simply reply to this email or write to us at
-                <a href="mailto:{support_email}" style="color: #1a1a1a; text-decoration: underline;">{support_email}</a>{' or call/WhatsApp ' + phone if phone else ''}.
+                <a href="mailto:{support_email}" style="color: #1a1a1a; text-decoration: underline;">{support_email}</a>.
             </p>
 
             <hr style="border: none; border-top: 1px solid #e5e0d8; margin: 0 0 20px 0;" />
@@ -658,7 +657,6 @@ def send_consultation_client_confirmation(booking_data: dict):
         preferred_date = booking_data.get('preferred_date') or 'To be coordinated'
         preferred_slot = booking_data.get('preferred_time_slot') or 'Flexible'
         support_email = BRAND_CONFIG['contact'].get('support_email') or BRAND_CONFIG['contact'].get('email', 'support@shvom.in')
-        phone = BRAND_CONFIG['contact'].get('phone', '')
 
         logger.info(f"[CONSULTATION CLIENT MAIL] Client email detected: '{client_email}' for {client_name}")
 
@@ -715,7 +713,7 @@ def send_consultation_client_confirmation(booking_data: dict):
             <p style="font-size: 13px; line-height: 1.6; color: #5a5a58; margin: 0 0 28px 0;">
                 In the meantime, if you have any questions or wish to share references or moodboards,
                 simply reply directly to this email or reach us at
-                <a href="mailto:{support_email}" style="color: #1a1a1a; text-decoration: underline;">{support_email}</a>{' or call/WhatsApp ' + phone if phone else ''}.
+                <a href="mailto:{support_email}" style="color: #1a1a1a; text-decoration: underline;">{support_email}</a>.
             </p>
 
             <hr style="border: none; border-top: 1px solid #e5e0d8; margin: 0 0 20px 0;" />
@@ -740,7 +738,7 @@ Request Summary:
   Preferred Date : {preferred_date}
   Preferred Slot : {preferred_slot}
 
-For queries, reply directly to this email or contact {support_email}{f' | {phone}' if phone else ''}.
+For queries, reply directly to this email or contact {support_email}.
 
 Warmest regards,
 The Concierge at Shvom
@@ -945,7 +943,7 @@ GST Summary (18% inclusive):
   TOTAL        : Rs.{amount:,.2f}
 
 For queries, quote Transaction ID {txn_id}
-Contact: {BRAND_CONFIG['contact'].get('email', 'support@shvom.in')}{f" | {BRAND_CONFIG['contact'].get('phone')}" if BRAND_CONFIG['contact'].get('phone') else ""}
+Contact: {BRAND_CONFIG['contact'].get('email', 'support@shvom.in')}
 
 Shvom Enterprises — The Art of the Thoughtful Departure
 """
