@@ -101,13 +101,17 @@ def create_gift_request(
         "reference_image_url": db_item.reference_image_url
     }
 
-    # Dispatch emails: on serverless (Vercel) execute directly to avoid container freeze
+    # Dispatch emails
+    import logging
+    r_logger = logging.getLogger("shvom.requests")
+    r_logger.info(f"[REQUEST ROUTE] New gift request {ref_id} from '{db_item.client_name}' ({db_item.client_email}). Queueing notifications...")
+
     if os.environ.get("VERCEL") or os.environ.get("SYNC_MAILS"):
         try:
             notify_team_new_request(req_dict)
             send_client_confirmation(req_dict)
-        except Exception:
-            pass
+        except Exception as e:
+            r_logger.error(f"[REQUEST ROUTE ERROR] Failed to send sync emails: {e}")
     else:
         background_tasks.add_task(notify_team_new_request, req_dict)
         background_tasks.add_task(send_client_confirmation, req_dict)

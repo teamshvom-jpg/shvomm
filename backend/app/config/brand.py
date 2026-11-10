@@ -18,6 +18,7 @@ BRAND_CONFIG = {
     "contact": {
         "email": "support@shvom.in",
         "support_email": "support@shvom.in",
+        "phone": "+91 94416 02822",
         "gstin": "36AHEPC4719K1ZD",
         "billing_name": "Shvom Enterprises",
         "hours": "Monday to Saturday, 10:00 AM - 7:00 PM IST (By Appointment)"

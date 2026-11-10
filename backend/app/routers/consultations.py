@@ -44,14 +44,17 @@ def book_consultation(
         "notes": booking.notes,
     }
 
-    # Emails: on serverless (Vercel) execute directly to avoid container freeze
     import os
+    import logging
+    c_logger = logging.getLogger("shvom.consultations")
+    c_logger.info(f"[CONSULTATION ROUTE] New booking from '{booking.full_name}' ({booking.email}). Queueing notifications...")
+
     if os.environ.get("VERCEL") or os.environ.get("SYNC_MAILS"):
         try:
             notify_team_new_consultation(booking_dict)
             send_consultation_client_confirmation(booking_dict)
-        except Exception:
-            pass
+        except Exception as e:
+            c_logger.error(f"[CONSULTATION ROUTE ERROR] Failed to send sync emails: {e}")
     else:
         background_tasks.add_task(notify_team_new_consultation, booking_dict)
         background_tasks.add_task(send_consultation_client_confirmation, booking_dict)
